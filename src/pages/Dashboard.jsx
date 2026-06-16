@@ -22,6 +22,7 @@ import {
   Calendar, 
   ChevronDown, 
   ChevronUp,
+  ChevronRight,
   EyeOff,
   Settings2,
   FileText, 
@@ -123,6 +124,9 @@ export default function Dashboard() {
   const [preguntas, setPreguntas] = useState([]);
   const [pivotBaseQuestion, setPivotBaseQuestion] = useState('');
   const [pivotCrossQuestion, setPivotCrossQuestion] = useState('');
+
+  // Drill-down Nivel de Actividad States
+  const [drillExpand, setDrillExpand] = useState({}); // { [questionId]: expandedRowLabel|null }
 
   // Layout Ordering and Visibility State
   const [chartOrder, setChartOrder] = useState(() => {
@@ -415,7 +419,7 @@ export default function Dashboard() {
 
   const camaraGrandTotal = React.useMemo(() => {
     const raw = camaraTotals.reduce((acc, c) => acc + c.total, 0);
-    return raw > 202 ? 202 : raw;
+    return raw > 203 ? 203 : raw;
   }, [camaraTotals]);
 
   const camaraWithPct = React.useMemo(() =>
@@ -450,6 +454,29 @@ export default function Dashboard() {
     const percentages = camaraFiltered.map(c => c.percentage);
     return { labels, datasets: [{ label: 'Asociados', data, backgroundColor: colors, borderColor: colors, borderWidth: 2, borderRadius: 4, barThickness: 22, percentages }] };
   }, [camaraFiltered]);
+
+  // Drill-down: extract cuadricula questions data
+  const drillData = React.useMemo(() => {
+    const result = {};
+    Object.entries(stats).forEach(([id, s]) => {
+      if (s.questionType === 'cuadricula') {
+        result[id] = {
+          label: s.label,
+          seccion_id: s.seccion_id,
+          rows: s.rows.map(r => ({
+            label: r.label,
+            total: r.total,
+            percentage: r.percentage,
+            ratings: r.matrixCounts || {}
+          }))
+        };
+      }
+    });
+    return result;
+  }, [stats]);
+
+  const RATING_LABELS = ['MUY MALO', 'MALO', 'REGULAR', 'BUENO', 'MUY BUENO'];
+  const RATING_COLORS_MAP = { 'MUY MALO': '#ef4444', 'MALO': '#f59e0b', 'REGULAR': '#94a3b8', 'BUENO': '#166534', 'MUY BUENO': '#3b82f6' };
 
   const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#14b8a6', '#f97316', '#6366f1', '#d946ef', '#0ea5e9', '#22d3ee', '#a855f7', '#e11d48', '#65a30d', '#0d9488', '#ca8a04', '#dc2626'];
 
@@ -1793,6 +1820,84 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* Drill-down: Distribucion por Nivel de Actividad */}
+          {Object.keys(drillData).length > 0 && (
+            <div id="chart-drilldown" className="glass-card animate-slide-up" style={{ padding: '2.5rem', borderRadius: '1.5rem', background: 'white', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.2rem', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                  <div style={{ background: 'rgba(139, 92, 246, 0.1)', padding: '0.6rem', borderRadius: '0.8rem', color: '#8b5cf6' }}>
+                    <BarChart3 size={24} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.35rem', fontWeight: '850', margin: 0, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>Distribucion por Nivel de Actividad</h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500' }}>Selecciona un rubro y una actividad para ver la evaluacion detallada</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                {Object.entries(drillData).map(([qId, qData]) => {
+                  const totalEnSector = qData.rows.reduce((acc, r) => acc + r.total, 0);
+                  const sectorName = qData.label.replace('Como evalua el movimiento ', '').replace(' en el ultimo mes?  Puede elegir la cantidad de rubros segun su actividad', '').replace(' en el ultimo mes?', '');
+                  return (
+                    <div key={qId} style={{ border: '1px solid #e2e8f0', borderRadius: '1rem', overflow: 'hidden' }}>
+                      <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: '800', fontSize: '1rem', color: '#1e293b', textTransform: 'uppercase' }}>{sectorName || 'General'}</span>
+                        <span style={{ fontWeight: '700', fontSize: '0.85rem', color: '#64748b' }}>{totalEnSector} respuestas</span>
+                      </div>
+                      {qData.rows.sort((a, b) => b.total - a.total).map(row => {
+                        const isExpanded = drillExpand[qId] === row.label;
+                        const rowTotal = RATING_LABELS.reduce((acc, r) => acc + (row.ratings[r] || 0), 0);
+                        return (
+                          <div key={row.label} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                            <div
+                              onClick={() => setDrillExpand({ ...drillExpand, [qId]: isExpanded ? null : row.label })}
+                              style={{
+                                padding: '0.8rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                cursor: 'pointer', background: isExpanded ? '#f1f5f9' : 'white',
+                                transition: 'background 0.15s'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                                <span style={{ color: isExpanded ? '#8b5cf6' : '#94a3b8', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>
+                                  <ChevronRight size={16} />
+                                </span>
+                                <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#1e293b' }}>{row.label}</span>
+                              </div>
+                              <span style={{ fontWeight: '700', fontSize: '0.85rem', color: '#64748b' }}>{row.total} respuestas</span>
+                            </div>
+                            {isExpanded && rowTotal > 0 && (
+                              <div style={{ padding: '1rem 1.5rem 1.5rem 3rem', background: '#fafafa', borderTop: '1px solid #e2e8f0' }}>
+                                {RATING_LABELS.map(rating => {
+                                  const count = row.ratings[rating] || 0;
+                                  const pct = rowTotal > 0 ? ((count / rowTotal) * 100).toFixed(1) : 0;
+                                  if (count === 0) return null;
+                                  return (
+                                    <div key={rating} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.5rem' }}>
+                                      <div style={{ width: '100px', fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textAlign: 'right' }}>{rating}</div>
+                                      <div style={{ flex: 1, height: '20px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                                        <div style={{ width: Math.max(Number(pct) * 2, 1) + '%', maxWidth: '100%', height: '100%', background: RATING_COLORS_MAP[rating] || '#94a3b8', borderRadius: '4px', transition: 'width 0.8s ease' }} />
+                                      </div>
+                                      <span style={{ minWidth: '80px', fontSize: '0.8rem', fontWeight: '700', color: '#1e293b', textAlign: 'right' }}>{pct}% ({count})</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {isExpanded && rowTotal === 0 && (
+                              <div style={{ padding: '1rem 1.5rem 1.5rem 3rem', background: '#fafafa', borderTop: '1px solid #e2e8f0', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                                Sin datos de evaluacion para esta actividad.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '10rem', background: 'white', borderRadius: '1.5rem' }}>
