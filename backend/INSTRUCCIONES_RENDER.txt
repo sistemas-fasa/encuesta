@@ -1,0 +1,37 @@
+# 🚀 INSTRUCCIONES PARA DESPLEGAR EN RENDER.COM
+
+Seguí estos pasos para que tu sistema de encuestas funcione en la web usando DonWeb para el diseño y Render para el "cerebro" (backend).
+
+### 1. 📂 PREPARAR EL CÓDIGO
+- Subí solo el CONTENIDO de la carpeta 'backend/' (donde está este archivo) a un nuevo repositorio de GitHub. 
+- (O podés usar la opción de "Upload" si Render te lo permite).
+
+### 2. ⚡ CONFIGURACIÓN EN RENDER.COM
+Al crear el "Web Service", usá estos datos:
+- **Runtime**: Node
+- **Build Command**: `npm install`
+- **Start Command**: `node server.js`
+
+### 3. 🗝️ VARIABLES DE ENTORNO (ENVIRONMENT)
+En la pestaña "Environment" de Render, hacé clic en "Add Environment Variable" y cargá estas (sacadas de tu .env):
+
+    DB_HOST = [Tu Host de DonWeb] (ej: localhost o la IP que te dé DonWeb)
+    DB_USER = ko000378_encuest
+    DB_PASS = 15ZEvonovo
+    DB_NAME = ko000378_encuest
+    SESSION_SECRET = survey-flow-secret-key-2026
+    PORT = 10000 (Render usará este puerto automáticamente)
+
+### 4. 🌐 ACCESO REMOTO MYSQL (EN DONWEB)
+¡MUY IMPORTANTE! Si no hacés esto, Render no podrá conectarse.
+1. Entrá a tu Panel de DonWeb -> Bases de Datos -> Mis Bases de Datos.
+2. Buscá la opción de **"Acceso Remoto"** o **"Remote MySQL"**.
+3. Agregá el símbolo `%` en la lista de permitidos y guardá.
+
+### 5. 🔗 ACTUALIZAR TU WEB
+- Cuando Render termine, te dará una URL (ej: `https://encuestas-api.onrender.com`).
+- Copiá esa URL y ponela en el archivo `src/services/api.js` de tu PC.
+- Ejecutá `npm run build` y subí la nueva carpeta `dist/` a DonWeb.
+
+---
+¡Listo! Si tenés dudas con algún paso, avisame.
