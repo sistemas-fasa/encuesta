@@ -797,11 +797,13 @@ export default function Dashboard() {
 
             // Build pivot by subrubro (for all question types)
             let pivotSubrubro = null;
-            if (ans.tipo === 'cuadricula' && ans.valor_texto) {
-                pivotSubrubro = ans.valor_texto;
-            } else if (ans.valor_texto) {
+            if (ans.valor_texto) {
                 const srMatch = ans.valor_texto.match(/\[(.+?)\]$/);
-                if (srMatch) pivotSubrubro = srMatch[1].trim();
+                if (srMatch) {
+                    pivotSubrubro = srMatch[1].trim();
+                } else if (ans.tipo === 'cuadricula') {
+                    pivotSubrubro = ans.valor_texto;
+                }
             }
             if (pivotSubrubro) {
                 if (!groupedStats[qId].subrubroPivot[pivotSubrubro]) groupedStats[qId].subrubroPivot[pivotSubrubro] = {};
