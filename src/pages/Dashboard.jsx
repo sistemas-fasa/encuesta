@@ -2287,7 +2287,7 @@ export default function Dashboard() {
                                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                                                             <thead>
                                                                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                                                    <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}></th>
+                                                                    <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>Actividad</th>
                                                                     {crossCats.map(cc => (
                                                                         <th key={cc} style={{ padding: '0.4rem 0.4rem', textAlign: 'center', fontWeight: '800', color: '#475569', fontSize: '0.85rem' }}>{cc}</th>
                                                                     ))}
@@ -2351,7 +2351,7 @@ export default function Dashboard() {
                                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                                                         <thead>
                                                             <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                                                <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>{rubroName}</th>
+                                                                <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>Actividad</th>
                                                                 {RATING_LABELS.map(cc => (
                                                                     <th key={cc} style={{ padding: '0.4rem 0.4rem', textAlign: 'center', fontWeight: '800', color: '#475569', fontSize: '0.85rem' }}>{cc}</th>
                                                                 ))}
