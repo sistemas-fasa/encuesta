@@ -845,8 +845,10 @@ export default function Dashboard() {
                     sector,
                     avg: d.count > 0 ? (d.sum / d.count) : 0,
                     total: d.total,
-                    count: d.count
-                })).sort((a, b) => b.total - a.total);
+                    count: d.count,
+                    sum: Math.round(d.sum)
+                })).sort((a, b) => b.sum - a.sum);
+                const totalSum = g.has_rubro ? rubroValues.reduce((a, r) => a + r.sum, 0) : Math.round(g.sum_numerico);
                 const finalRespSum = g.has_rubro ? rubroValues.reduce((a, r) => a + r.total, 0) : g.count_numerico;
                 const finalRespCount = g.has_rubro ? rubroValues.reduce((a, r) => a + r.count, 0) : g.count_numerico;
                 newStats[id] = {
@@ -854,7 +856,7 @@ export default function Dashboard() {
                     label: g.label,
                     seccion_id: g.seccion_id,
                     value: finalRespCount > 0 ? (g.sum_numerico / g.count_numerico).toFixed(1) : 'N/A',
-                    total: Math.round(g.sum_numerico),
+                    total: totalSum,
                     respuestas: finalRespSum,
                     rubroValues
                 };
@@ -2397,21 +2399,21 @@ export default function Dashboard() {
                                 ) : s.type === 'metric' && s.rubroValues && s.rubroValues.length > 0 ? (
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', padding: '1.5rem' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: 'var(--primary-light)', borderRadius: '1rem', padding: '1.5rem' }}>
-                                            <div style={{ fontSize: '2.4rem', fontWeight: '900', color: 'var(--primary)' }}>{s.respuestas}</div>
-                                            <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginTop: '0.3rem' }}>Respuestas</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>Total empleados: {s.total}</div>
+                                            <div style={{ fontSize: '2.4rem', fontWeight: '900', color: 'var(--primary)' }}>{s.total}</div>
+                                            <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginTop: '0.3rem' }}>Total empleados</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>{s.respuestas} respuestas</div>
                                         </div>
                                         <div>
-                                            <div style={{ fontWeight: '700', fontSize: '0.8rem', color: '#1e293b', marginBottom: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Respuestas por Rubro</div>
+                                            <div style={{ fontWeight: '700', fontSize: '0.8rem', color: '#1e293b', marginBottom: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Empleados por Rubro</div>
                                             {s.rubroValues.map(r => {
-                                                const maxVal = Math.max(...s.rubroValues.map(x => x.total), 1);
-                                                const bw = (r.total / maxVal) * 100;
+                                                const maxVal = Math.max(...s.rubroValues.map(x => x.sum), 1);
+                                                const bw = (r.sum / maxVal) * 100;
                                                 return (
                                                     <div key={r.sector} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
                                                         <span style={{ minWidth: '100px', fontSize: '0.75rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sector}</span>
                                                         <div style={{ flex: 1, height: '18px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
                                                             <div style={{ width: `${Math.max(bw, 2)}%`, height: '100%', background: '#8b5cf6', borderRadius: '4px', display: 'flex', alignItems: 'center', paddingLeft: '6px' }}>
-                                                                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'white' }}>{r.total}</span>
+                                                                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'white' }}>{r.sum}</span>
                                                             </div>
                                                         </div>
                                                         <span style={{ minWidth: '30px', fontSize: '0.7rem', fontWeight: '700', color: '#6b7280' }}>({r.avg.toFixed(1)})</span>
@@ -2422,8 +2424,9 @@ export default function Dashboard() {
                                     </div>
                                 ) : (
                                     <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--primary-light)', borderRadius: '1rem' }}>
-                                        <div style={{ fontSize: '3rem', fontWeight: '800', color: 'var(--primary)' }}>{s.total || s.value}</div>
+                                        <div style={{ fontSize: '3rem', fontWeight: '800', color: 'var(--primary)' }}>{s.total}</div>
                                         <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Total empleados</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>{s.respuestas} respuestas</div>
                                     </div>
                                 )}
                             </div>
