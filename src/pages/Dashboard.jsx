@@ -1197,6 +1197,103 @@ export default function Dashboard() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+
+          {/* Constructor Dinámico de Gráficos Cruzados (Pivot Charts) - PRIMERO */}
+          <div id="chart-pivot" className="glass-card animate-slide-up" style={{ padding: '2.5rem', borderRadius: '1.5rem', background: 'white', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.2rem', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '0.6rem', borderRadius: '0.8rem', color: 'white' }}>
+                        <GitMerge size={24} />
+                    </div>
+                    <div>
+                        <h3 style={{ fontSize: '1.35rem', fontWeight: '850', margin: 0, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>Constructor de Gráficos Cruzados</h3>
+                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500' }}>Cruce dos variables para descubrir insights</p>
+                    </div>
+                </div>
+                <button className="btn btn-outline btn-small no-print" onClick={() => saveChartAsImage('chart-pivot', 'grafico_cruzado')} title="Guardar imagen">
+                  <Camera size={16} />
+                </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1.5rem', alignItems: 'end', background: '#f8fafc', padding: '1.5rem', borderRadius: '1rem', border: '1px solid #e2e8f0' }} className="no-print">
+                <div className="input-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', marginBottom: '0.6rem' }}>Variable 1 (Eje Y)</label>
+                    <select value={pivotBaseQuestion} onChange={(e) => setPivotBaseQuestion(e.target.value)} style={{ width: '100%', background: 'white', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.8rem', fontSize: '0.85rem' }}>
+                        <option value="">-- Seleccione una pregunta --</option>
+                        {preguntas.filter(p => p.tipo !== 'texto' && p.tipo !== 'archivo' && p.tipo !== 'titulo').map(p => (
+                            <option key={p.id} value={p.id}>{p.texto_pregunta.substring(0, 80)}{p.texto_pregunta.length > 80 ? '...' : ''}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="input-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', marginBottom: '0.6rem' }}>Variable 2 (Agrupación / Leyenda)</label>
+                    <select value={pivotCrossQuestion} onChange={(e) => setPivotCrossQuestion(e.target.value)} style={{ width: '100%', background: 'white', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.8rem', fontSize: '0.85rem' }}>
+                        <option value="">-- Seleccione una agrupación --</option>
+                        <option value="sector" style={{ fontWeight: 'bold' }}>⭐ SECTOR INDUSTRIAL/COMERCIAL</option>
+                        {preguntas.filter(p => p.tipo !== 'texto' && p.tipo !== 'archivo' && p.tipo !== 'titulo' && p.id != pivotBaseQuestion).map(p => (
+                            <option key={p.id} value={p.id}>{p.texto_pregunta.substring(0, 80)}{p.texto_pregunta.length > 80 ? '...' : ''}</option>
+                        ))}
+                    </select>
+                </div>
+                <button 
+                    className="btn btn-primary" 
+                    onClick={handleLoadPivot} 
+                    disabled={pivotLoading || !pivotBaseQuestion || !pivotCrossQuestion}
+                    style={{ padding: '0.8rem 1.5rem', height: '45px', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}
+                >
+                    {pivotLoading ? <RefreshCcw className="animate-spin" size={18} /> : <BarChart2 size={18} />}
+                    Generar Gráfico
+                </button>
+            </div>
+
+            {pivotData && (
+                <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: '800', color: 'var(--text-main)', margin: 0 }}>{pivotData.baseLabel}</h4>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '0.5rem 0 0 0', fontWeight: '600' }}>Agrupado por: <span style={{ color: 'var(--primary)' }}>{pivotData.crossLabel}</span></p>
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center', marginBottom: '1.5rem' }}>
+                        {pivotData.crossCategories.map((cat, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase' }}>
+                                <div style={{ width: '14px', height: '14px', background: cat.color, borderRadius: '2px' }} /> {cat.name}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div style={{ display: 'grid', gap: '0', border: '1px solid #e2e8f0', borderRadius: '0.5rem', overflow: 'hidden' }}>
+                        {pivotData.rows.map((row, rIdx) => {
+                            const grandSelectedTotal = pivotData.grandTotal;
+                            const displayPct = grandSelectedTotal > 0 ? ((row.total / grandSelectedTotal) * 100).toFixed(1) : 0;
+
+                            return (
+                                <div key={rIdx} className="chart-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderBottom: rIdx === pivotData.rows.length - 1 ? 'none' : '1px solid #e2e8f0', background: 'white' }}>
+                                    <div style={{ padding: '0.8rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #e2e8f0', textAlign: 'center', background: '#f8fafc' }}>
+                                        <div style={{ fontWeight: '700', fontSize: '0.75rem', lineHeight: '1.2', marginBottom: '0.5rem', color: '#1e293b' }}>{row.label}</div>
+                                        <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--primary)' }}>{displayPct}%</div>
+                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>Total: {row.total}</div>
+                                    </div>
+                                    <div className="bar-container" style={{ padding: '0.8rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'center' }}>
+                                        {row.bars.map((bar, bIdx) => {
+                                            if (bar.count === 0) return null;
+                                            const barRelPct = grandSelectedTotal > 0 ? ((bar.count / grandSelectedTotal) * 100).toFixed(1) : 0;
+                                            return (
+                                                <div key={bIdx} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                                                    <div style={{ width: '60px', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={bar.sector}>{bar.sector}</div>
+                                                    <div style={{ height: '12px', width: `${Math.max(barRelPct * 2, 2)}%`, maxWidth: '85%', background: bar.color, borderRadius: '2px', transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>{barRelPct}% ({bar.count})</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                );
+              })()}
+            </div>
+              </div>
+            )}
+          </div>
+
           {/* ===== DASHBOARD EJECUTIVO DE CÁMARAS Y ASOCIACIONES ===== */}
           {(() => {
             if (!camaraBarData || camaraWithPct.length === 0) return null;
@@ -1375,103 +1472,6 @@ export default function Dashboard() {
               </div>
             );
           })()}
-
-          {/* Constructor Dinámico de Gráficos Cruzados (Pivot Charts) */}
-          <div id="chart-pivot" className="glass-card animate-slide-up" style={{ padding: '2.5rem', borderRadius: '1.5rem', background: 'white', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.2rem', marginBottom: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                    <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '0.6rem', borderRadius: '0.8rem', color: 'white' }}>
-                        <GitMerge size={24} />
-                    </div>
-                    <div>
-                        <h3 style={{ fontSize: '1.35rem', fontWeight: '850', margin: 0, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>Constructor de Gráficos Cruzados</h3>
-                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500' }}>Cruce dos variables para descubrir insights</p>
-                    </div>
-                </div>
-                <button className="btn btn-outline btn-small no-print" onClick={() => saveChartAsImage('chart-pivot', 'grafico_cruzado')} title="Guardar imagen">
-                  <Camera size={16} />
-                </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1.5rem', alignItems: 'end', background: '#f8fafc', padding: '1.5rem', borderRadius: '1rem', border: '1px solid #e2e8f0' }} className="no-print">
-                <div className="input-group" style={{ margin: 0 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', marginBottom: '0.6rem' }}>Variable 1 (Eje Y)</label>
-                    <select value={pivotBaseQuestion} onChange={(e) => setPivotBaseQuestion(e.target.value)} style={{ width: '100%', background: 'white', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.8rem', fontSize: '0.85rem' }}>
-                        <option value="">-- Seleccione una pregunta --</option>
-                        {preguntas.filter(p => p.tipo !== 'texto' && p.tipo !== 'archivo' && p.tipo !== 'titulo').map(p => (
-                            <option key={p.id} value={p.id}>{p.texto_pregunta.substring(0, 80)}{p.texto_pregunta.length > 80 ? '...' : ''}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="input-group" style={{ margin: 0 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', marginBottom: '0.6rem' }}>Variable 2 (Agrupación / Leyenda)</label>
-                    <select value={pivotCrossQuestion} onChange={(e) => setPivotCrossQuestion(e.target.value)} style={{ width: '100%', background: 'white', border: '1px solid #cbd5e1', borderRadius: '0.5rem', padding: '0.8rem', fontSize: '0.85rem' }}>
-                        <option value="">-- Seleccione una agrupación --</option>
-                        <option value="sector" style={{ fontWeight: 'bold' }}>⭐ SECTOR INDUSTRIAL/COMERCIAL</option>
-                        {preguntas.filter(p => p.tipo !== 'texto' && p.tipo !== 'archivo' && p.tipo !== 'titulo' && p.id != pivotBaseQuestion).map(p => (
-                            <option key={p.id} value={p.id}>{p.texto_pregunta.substring(0, 80)}{p.texto_pregunta.length > 80 ? '...' : ''}</option>
-                        ))}
-                    </select>
-                </div>
-                <button 
-                    className="btn btn-primary" 
-                    onClick={handleLoadPivot} 
-                    disabled={pivotLoading || !pivotBaseQuestion || !pivotCrossQuestion}
-                    style={{ padding: '0.8rem 1.5rem', height: '45px', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}
-                >
-                    {pivotLoading ? <RefreshCcw className="animate-spin" size={18} /> : <BarChart2 size={18} />}
-                    Generar Gráfico
-                </button>
-            </div>
-
-            {pivotData && (
-                <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: '800', color: 'var(--text-main)', margin: 0 }}>{pivotData.baseLabel}</h4>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '0.5rem 0 0 0', fontWeight: '600' }}>Agrupado por: <span style={{ color: 'var(--primary)' }}>{pivotData.crossLabel}</span></p>
-                    </div>
-                    
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center', marginBottom: '1.5rem' }}>
-                        {pivotData.crossCategories.map((cat, idx) => (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase' }}>
-                                <div style={{ width: '14px', height: '14px', background: cat.color, borderRadius: '2px' }} /> {cat.name}
-                            </div>
-                        ))}
-                    </div>
-
-                    <div style={{ display: 'grid', gap: '0', border: '1px solid #e2e8f0', borderRadius: '0.5rem', overflow: 'hidden' }}>
-                        {pivotData.rows.map((row, rIdx) => {
-                            const grandSelectedTotal = pivotData.grandTotal;
-                            const displayPct = grandSelectedTotal > 0 ? ((row.total / grandSelectedTotal) * 100).toFixed(1) : 0;
-
-                            return (
-                                <div key={rIdx} className="chart-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderBottom: rIdx === pivotData.rows.length - 1 ? 'none' : '1px solid #e2e8f0', background: 'white' }}>
-                                    <div style={{ padding: '0.8rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #e2e8f0', textAlign: 'center', background: '#f8fafc' }}>
-                                        <div style={{ fontWeight: '700', fontSize: '0.75rem', lineHeight: '1.2', marginBottom: '0.5rem', color: '#1e293b' }}>{row.label}</div>
-                                        <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--primary)' }}>{displayPct}%</div>
-                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>Total: {row.total}</div>
-                                    </div>
-                                    <div className="bar-container" style={{ padding: '0.8rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'center' }}>
-                                        {row.bars.map((bar, bIdx) => {
-                                            if (bar.count === 0) return null;
-                                            // The bar percentage relative to the grand total, same scale as original charts
-                                            const barRelPct = grandSelectedTotal > 0 ? ((bar.count / grandSelectedTotal) * 100).toFixed(1) : 0;
-                                            return (
-                                                <div key={bIdx} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                                                    <div style={{ width: '60px', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={bar.sector}>{bar.sector}</div>
-                                                    <div style={{ height: '12px', width: `${Math.max(barRelPct * 2, 2)}%`, maxWidth: '85%', background: bar.color, borderRadius: '2px', transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                                                    <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>{barRelPct}% ({bar.count})</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                );
-              })()}
-            </div>
-              </div>
-            )}
-          </div>
 
           <div id="chart-rubros" className={`glass-card animate-slide-up ${pdfSelection['rubros'] === false ? 'hide-in-print' : ''}`} style={{ padding: '2rem', borderRadius: '1.5rem', background: 'white' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
