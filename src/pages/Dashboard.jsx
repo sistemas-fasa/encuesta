@@ -820,6 +820,7 @@ export default function Dashboard() {
 
         const newStats = {};
         Object.entries(groupedStats).forEach(([id, g]) => {
+            if ((g.label || '').toLowerCase().includes('seleccione su actividad económica')) return;
             const rowLabels = Object.keys(g.options);
             const sectorNames = Array.from(g.sectors).sort();
             const matrixCols = Array.from(g.matrixColumns).sort();
@@ -1974,7 +1975,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
                     {(() => {
-                        const allStats = Object.entries(stats).filter(([id, s]) => !hiddenCharts.includes(id) && !(s.label || '').toLowerCase().includes('seleccione su actividad económica'));
+                        const allStats = Object.entries(stats).filter(([id]) => !hiddenCharts.includes(id));
                         const sortedStats = [...allStats].sort((a, b) => {
                             const indexA = chartOrder.indexOf(a[0]);
                             const indexB = chartOrder.indexOf(b[0]);
@@ -2541,7 +2542,7 @@ export default function Dashboard() {
                 )}
 
                 {(() => {
-                    const allStats = Object.entries(stats).filter(([id, s]) => !hiddenCharts.includes(id) && !(s.label || '').toLowerCase().includes('seleccione su actividad económica'));
+                    const allStats = Object.entries(stats).filter(([id]) => !hiddenCharts.includes(id));
                     const sortedStats = [...allStats].sort((a, b) => {
                         const indexA = chartOrder.indexOf(a[0]);
                         const indexB = chartOrder.indexOf(b[0]);
