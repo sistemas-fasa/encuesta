@@ -2248,8 +2248,8 @@ export default function Dashboard() {
                                         </div>
                                     </div>
 
-                                    {/* Detail table for selected rubro */}
-                                    {activeRubroDetail?.qId === id && s.type === 'chart-sector' && (
+                                    {/* Detail table for selected rubro — solo en 'Resultado general por actividad' */}
+                                    {activeRubroDetail?.qId === id && s.type === 'chart-sector' && (s.label || '').toLowerCase().includes('nivel de actividad') && (
                                     (() => {
                                         const rubroName = activeRubroDetail.rubro;
                                         // Cross-tab: Actividad × Rating (like old system)
