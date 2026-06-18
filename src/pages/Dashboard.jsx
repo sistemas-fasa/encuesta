@@ -820,7 +820,7 @@ export default function Dashboard() {
 
         const newStats = {};
         Object.entries(groupedStats).forEach(([id, g]) => {
-            if ((g.label || '').toLowerCase().includes('seleccione su actividad económica')) return;
+            if ((g.label || '').toLowerCase().includes('seleccione su actividad')) return;
             const rowLabels = Object.keys(g.options);
             const sectorNames = Array.from(g.sectors).sort();
             const matrixCols = Array.from(g.matrixColumns).sort();
