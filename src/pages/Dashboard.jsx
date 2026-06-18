@@ -2300,7 +2300,7 @@ export default function Dashboard() {
                                                             </thead>
                                                             <tbody>
                                                                 {rows.map(r => (
-                                                                    <tr key={r.label} style={{ borderBottom: '2px solid #cbd5e1' }}>
+                                                                    <tr key={r.label} style={{ borderBottom: '2px solid #94a3b8' }}>
                                                                         <td style={{ padding: '0.35rem 0.6rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{r.label}</td>
                                                                         {r.values.map((v, vi) => {
                                                                             const pct = grandTotal > 0 ? ((v / grandTotal) * 100).toFixed(1) : '0.0';
@@ -2366,7 +2366,7 @@ export default function Dashboard() {
                                                         </thead>
                                                         <tbody>
                                                             {pivotRows.map(r => (
-                                                                 <tr key={r.label} style={{ borderBottom: '2px solid #cbd5e1' }}>
+                                                                 <tr key={r.label} style={{ borderBottom: '2px solid #94a3b8' }}>
                                                                      <td style={{ padding: '0.35rem 0.6rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{r.label}</td>
                                                                     {r.values.map((v, vi) => {
                                                                         const pct = pivotGrandTotal > 0 ? ((v / pivotGrandTotal) * 100).toFixed(1) : '0.0';
