@@ -1006,34 +1006,34 @@ export default function Dashboard() {
           .print-only { display: none !important; }
         }
         @media print {
-          @page { size: A4; margin: 1cm; }
+          @page { size: A4; margin: 0.6cm; }
           body { background: white !important; -webkit-print-color-adjust: exact !important; }
           .dashboard-container { padding: 0 !important; background: white !important; width: 100% !important; max-width: none !important; }
           .no-print { display: none !important; }
           .glass-card { 
             box-shadow: none !important; 
-            border: 2px solid #000 !important; 
-            break-inside: avoid;
-            margin-bottom: 1cm !important;
-            padding: 0.8cm !important;
-            page-break-after: auto; /* Remove forced break to allow more fit */
+            border: 1px solid #ccc !important; 
+            break-inside: avoid !important;
+            margin-bottom: 0.6cm !important;
+            padding: 0.5cm !important;
+            page-break-after: auto;
           }
-          h4 { font-size: 1.1rem !important; margin-bottom: 0.5rem !important; }
-          .bar-container { transform: scale(0.9); transform-origin: left; }
-          .chart-row { grid-template-columns: 180px 1fr !important; }
-          .percentage-text { font-size: 1.8rem !important; }
-          table { font-size: 0.75rem !important; }
-          th, td { padding: 0.5rem !important; }
+          h4 { font-size: 1.2rem !important; margin-bottom: 0.4rem !important; }
+          .bar-container { transform: scale(0.95); transform-origin: left; }
+          .chart-row { grid-template-columns: 160px 1fr !important; }
+          .percentage-text { font-size: 1.6rem !important; }
           .dashboard-grid { 
             display: block !important; 
           }
           .print-header {
             display: block !important;
-            margin-bottom: 2rem;
+            margin-bottom: 1cm;
             text-align: center;
-            border-bottom: 3px solid #1e293b;
-            padding-bottom: 1rem;
+            border-bottom: 2px solid #1e293b;
+            padding-bottom: 0.6cm;
           }
+          .print-header img { height: 70px !important; }
+          .print-header h1 { font-size: 1.6rem !important; }
           .force-print-block {
             display: block !important;
             opacity: 1 !important;
@@ -1041,8 +1041,16 @@ export default function Dashboard() {
             height: auto !important;
             overflow: visible !important;
           }
-          table { border: 1px solid #000 !important; }
-          th, td { border: 1px solid #000 !important; }
+          .no-print-logic {
+            display: block !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          table.force-print-block { border: 1px solid #000 !important; font-size: 0.8rem !important; }
+          table.force-print-block th,
+          table.force-print-block td { border: 1px solid #000 !important; padding: 0.4rem 0.6rem !important; }
           .section-group { page-break-before: always; }
           .section-group:first-child { page-break-before: auto; }
         }
