@@ -2184,7 +2184,13 @@ export default function Dashboard() {
                                     </div>
                                     
                                     <div style={{ display: 'grid', gap: '0', border: '1px solid #e2e8f0' }}>
-                                        {s.rows.map((row, rIdx) => {
+                                        {[...s.rows]
+                                            .sort((a, b) => {
+                                                const totalA = a.bars.filter(ba => selectedSectors.includes(ba.sector)).reduce((acc, ba) => acc + ba.count, 0);
+                                                const totalB = b.bars.filter(bb => selectedSectors.includes(bb.sector)).reduce((acc, bb) => acc + bb.count, 0);
+                                                return totalB - totalA;
+                                            })
+                                            .map((row, rIdx) => {
                                             const activeBars = row.bars.filter(b => selectedSectors.includes(b.sector));
                                             const rowSelectedTotal = activeBars.reduce((acc, b) => acc + b.count, 0);
                                             
@@ -2197,7 +2203,7 @@ export default function Dashboard() {
                                             if (rowSelectedTotal === 0 && selectedSectors.length > 0) return null;
 
                                             return (
-                                                <div key={rIdx} className="chart-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderBottom: rIdx === s.rows.length - 1 ? 'none' : '1px solid #e2e8f0', background: 'white' }}>
+                                                <div key={rIdx} className="chart-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
                                                     <div style={{ padding: '0.8rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #e2e8f0', textAlign: 'center', background: '#f8fafc' }}>
                                                         <div style={{ fontWeight: '700', fontSize: '0.75rem', lineHeight: '1.2', marginBottom: '0.5rem', color: '#1e293b' }}>{row.label}</div>
                                                         <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--primary)' }}>{displayPct}%</div>
