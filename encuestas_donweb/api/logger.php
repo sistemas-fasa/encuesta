@@ -6,7 +6,7 @@
  * Los logs se almacenan en /encuestas/logs/ con rotación diaria.
  */
 
-define('LOG_DIR', __DIR__ . '/../logs');
+define('LOG_DIR', __DIR__ . '/../../logs');
 define('LOG_FILE', LOG_DIR . '/encuestas_' . date('Y-m-d') . '.log');
 define('LOG_MAX_SIZE', 10 * 1024 * 1024); // 10 MB por archivo
 

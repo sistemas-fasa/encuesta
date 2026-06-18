@@ -12,7 +12,7 @@ header("Pragma: no-cache");
 header("Expires: 0");
 
 // Versión basada en la fecha del último deploy + hash
-$versionFile = __DIR__ . '/../version.json';
+$versionFile = __DIR__ . '/../../dist/version.json';
 $version = [
     'version' => '__BUILD_VERSION__',
     'build_time' => date('Y-m-d H:i:s'),

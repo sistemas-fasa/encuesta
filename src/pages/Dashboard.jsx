@@ -80,6 +80,7 @@ ChartJS.register(barLabelPlugin);
 const PDF_COLORS = {
     'COMERCIO': '#ED7D31',
     'PRODUCCIÓN': '#FFC000',
+    'PRODUCCION': '#FFC000',
     'INDUSTRIA': '#7030A0',
     'TURISMO': '#4472C4',
     'SERVICIOS': '#70AD47'
@@ -126,20 +127,136 @@ export default function Dashboard() {
   const [pivotCrossQuestion, setPivotCrossQuestion] = useState('');
 
   // Drill-down Nivel de Actividad States
-  const [drillExpand, setDrillExpand] = useState({}); // { [questionId]: expandedRowLabel|null }
+  const [drillExpand, setDrillExpand] = useState({}); // { [questionId]: { sector: string|null, row: string|null } }
+  const [activeRubro, setActiveRubro] = useState(null); // Selected rubro for detail view
+  const [activeRating, setActiveRating] = useState(null); // Selected rating for detail view
+  const [activeDrillQId, setActiveDrillQId] = useState(null); // Which question's chart is active
+  const [activeRubroDetail, setActiveRubroDetail] = useState(null); // { qId: string, rubro: string } | null
+  const [rubroCrossTab, setRubroCrossTab] = useState(null);
+  const [rubroCrossTabLoading, setRubroCrossTabLoading] = useState(false);
+  const [rubroCrossTabError, setRubroCrossTabError] = useState(false);
+
+  // Fetch cross-tab data (actividad × rating) when a rubro is clicked
+  useEffect(() => {
+    const rubro = activeRubroDetail?.rubro;
+    if (!rubro || !selectedPeriodoId) return setRubroCrossTab(null);
+    const rubroLower = rubro.toLowerCase();
+
+    let genActId = null, genRatingId = null;
+    let secActId = null, secRatingId = null;
+    Object.entries(stats).forEach(([id, st]) => {
+      if (st.type !== 'chart-sector') return;
+      const label = (st.label || '').toLowerCase();
+      if (label.includes('movimiento') && (label.includes('comercial') || label.includes('servicio') || label.includes('industrial') || label.includes('turístico') || label.includes('turistico') || label.includes('productivo'))) {
+        genActId = id;
+        genRatingId = id;
+        
+        let match = false;
+        if (rubroLower === 'comercio' && label.includes('comercial')) match = true;
+        if (rubroLower === 'industria' && label.includes('industrial')) match = true;
+        if (rubroLower === 'turismo' && (label.includes('turístico') || label.includes('turistico'))) match = true;
+        if ((rubroLower === 'producción' || rubroLower === 'produccion') && label.includes('productivo')) match = true;
+        if ((rubroLower === 'servicios' || rubroLower === 'servicio') && label.includes('servicio')) match = true;
+        
+        if (match) { secActId = id; secRatingId = id; }
+      }
+    });
+
+    const loadPivot = (actId, ratingId) => {
+      if (!actId || !ratingId) return Promise.resolve(null);
+      return api.getStatsPivot(selectedPeriodoId, actId, ratingId, selectedLocalidadId, rubro)
+        .then(raw => {
+          const filtered = raw.filter(r =>
+            r.sector_nombre && r.sector_nombre.toLowerCase().trim() === rubroLower
+          );
+          if (filtered.length === 0) return null;
+          const extractMain = (cat) => {
+            const idx = cat.indexOf('[');
+            return idx > 0 ? cat.substring(0, idx).trim() : cat;
+          };
+          const grouped = {};
+          filtered.forEach(r => {
+            const mainCat = extractMain(r.cross_categoria);
+            const bc = r.base_categoria;
+            const cnt = Number(r.cantidad);
+            const key = `${bc}|||${mainCat}`;
+            grouped[key] = (grouped[key] || 0) + cnt;
+          });
+          const baseCats = [...new Set(Object.keys(grouped).map(k => k.split('|||')[0]))].sort();
+          const crossCats = [...new Set(Object.keys(grouped).map(k => k.split('|||')[1]))].sort();
+          const matrix = {};
+          let grandTotal = 0;
+          Object.entries(grouped).forEach(([key, cnt]) => {
+            const [bc, cc] = key.split('|||');
+            if (!matrix[bc]) matrix[bc] = {};
+            matrix[bc][cc] = (matrix[bc][cc] || 0) + cnt;
+            grandTotal += cnt;
+          });
+          const rows = baseCats.map(bc => ({
+            label: bc,
+            values: crossCats.map(cc => matrix[bc]?.[cc] || 0),
+            total: crossCats.reduce((a, cc) => a + (matrix[bc]?.[cc] || 0), 0)
+          }));
+          const crossTotals = crossCats.map(cc => rows.reduce((a, r) => a + r.values[crossCats.indexOf(cc)], 0));
+          return { rows, crossCats, grandTotal, crossTotals };
+        })
+        .catch(() => null);
+    };
+
+    setRubroCrossTabLoading(true);
+    setRubroCrossTabError(false);
+
+    // Try: sector-specific → general → error
+    const tryQuestions = async () => {
+      let result = secActId || secRatingId ? await loadPivot(secActId, secRatingId) : null;
+      if (!result) result = await loadPivot(genActId, genRatingId);
+      if (result) {
+        setRubroCrossTab(result);
+      } else {
+        setRubroCrossTab(null);
+        setRubroCrossTabError(true);
+      }
+      setRubroCrossTabLoading(false);
+    };
+    tryQuestions();
+  }, [activeRubroDetail, selectedPeriodoId, selectedLocalidadId]);
 
   // Layout Ordering and Visibility State
   const [chartOrder, setChartOrder] = useState(() => {
-    const saved = localStorage.getItem('dashboardGlobalChartOrder');
+    const saved = localStorage.getItem('dashboard_chartOrder');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [hiddenCharts, setHiddenCharts] = useState(() => {
-    const saved = localStorage.getItem('dashboardHiddenCharts');
+    const saved = localStorage.getItem('dashboard_hiddenCharts');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Clean stale chart IDs from saved order/hidden on stats load
+  useEffect(() => {
+    const statsIds = Object.keys(stats);
+    if (statsIds.length === 0) return;
+    const savedOrder = localStorage.getItem('dashboard_chartOrder');
+    if (savedOrder) {
+      const parsed = JSON.parse(savedOrder);
+      const clean = parsed.filter(id => statsIds.includes(id));
+      if (clean.length !== parsed.length) {
+        setChartOrder(clean);
+        localStorage.setItem('dashboard_chartOrder', JSON.stringify(clean));
+      }
+    }
+    const savedHidden = localStorage.getItem('dashboard_hiddenCharts');
+    if (savedHidden) {
+      const parsed = JSON.parse(savedHidden);
+      const clean = parsed.filter(id => statsIds.includes(id));
+      if (clean.length !== parsed.length) {
+        setHiddenCharts(clean);
+        localStorage.setItem('dashboard_hiddenCharts', JSON.stringify(clean));
+      }
+    }
+  }, [stats]);
 
   const moveChart = (chartId, direction) => {
     const statsIds = Object.keys(stats);
@@ -157,14 +274,14 @@ export default function Dashboard() {
     newOrder[newIndex] = temp;
 
     setChartOrder(newOrder);
-    localStorage.setItem('dashboardGlobalChartOrder', JSON.stringify(newOrder));
+    localStorage.setItem('dashboard_chartOrder', JSON.stringify(newOrder));
   };
 
   const toggleHideChart = (chartId) => {
     const isHidden = hiddenCharts.includes(chartId);
     const updated = isHidden ? hiddenCharts.filter(id => id !== chartId) : [...hiddenCharts, chartId];
     setHiddenCharts(updated);
-    localStorage.setItem('dashboardHiddenCharts', JSON.stringify(updated));
+    localStorage.setItem('dashboard_hiddenCharts', JSON.stringify(updated));
   };
   const [pivotData, setPivotData] = useState(null);
   const [pivotLoading, setPivotLoading] = useState(false);
@@ -455,22 +572,25 @@ export default function Dashboard() {
     return { labels, datasets: [{ label: 'Asociados', data, backgroundColor: colors, borderColor: colors, borderWidth: 2, borderRadius: 4, barThickness: 22, percentages }] };
   }, [camaraFiltered]);
 
-  // Drill-down: extract cuadricula questions data
+  // Drill-down: interactive stacked chart data for all question types
   const drillData = React.useMemo(() => {
     const result = {};
     Object.entries(stats).forEach(([id, s]) => {
-      if (s.questionType === 'cuadricula') {
-        result[id] = {
-          label: s.label,
-          seccion_id: s.seccion_id,
-          rows: s.rows.map(r => ({
-            label: r.label,
-            total: r.total,
-            percentage: r.percentage,
-            ratings: r.matrixCounts || {}
-          }))
-        };
-      }
+      if (s.type !== 'chart-sector') return;
+      result[id] = {
+        label: s.label,
+        seccion_id: s.seccion_id,
+        questionType: s.questionType,
+        matrixCols: s.matrixCols || [],
+        rows: s.rows.map(r => ({
+          label: r.label,
+          total: r.total,
+          percentage: r.percentage,
+          ratings: r.matrixCounts || {},
+          bars: r.bars || [],
+          rubroRating: r.rubroRating || {}
+        }))
+      };
     });
     return result;
   }, [stats]);
@@ -622,13 +742,28 @@ export default function Dashboard() {
                     sectors: new Set(),
                     matrixColumns: new Set(),
                     sum_numerico: 0,
-                    count_numerico: 0
+                    count_numerico: 0,
+                    rubro_numerico: {} // { sectorName: { sum, count } }
                 };
             }
             
             if (isNumericType) {
-                groupedStats[qId].sum_numerico += ans.promedio * ans.count;
-                groupedStats[qId].count_numerico += ans.count;
+                const secName = ans.sector_nombre;
+                if (secName) {
+                    groupedStats[qId].has_rubro = true;
+                    if (!groupedStats[qId].rubro_numerico[secName]) {
+                        groupedStats[qId].rubro_numerico[secName] = { sum: 0, count: 0, total: 0 };
+                    }
+                    groupedStats[qId].rubro_numerico[secName].sum += ans.promedio * ans.count;
+                    groupedStats[qId].rubro_numerico[secName].count += ans.count;
+                    groupedStats[qId].rubro_numerico[secName].total += ans.count;
+                    groupedStats[qId].sectors.add(secName);
+                } else {
+                    if (!groupedStats[qId].has_rubro) {
+                        groupedStats[qId].sum_numerico += ans.promedio * ans.count;
+                        groupedStats[qId].count_numerico += ans.count;
+                    }
+                }
                 return;
             }
 
@@ -644,7 +779,8 @@ export default function Dashboard() {
                 groupedStats[qId].options[rowLabel] = { 
                     sector_counts: {}, 
                     total: 0,
-                    matrix_counts: {} 
+                    matrix_counts: {},
+                    rubro_rating: {} 
                 };
             }
 
@@ -652,6 +788,11 @@ export default function Dashboard() {
                 groupedStats[qId].matrixColumns.add(ans.texto_opcion);
                 groupedStats[qId].options[rowLabel].matrix_counts[ans.texto_opcion] = (groupedStats[qId].options[rowLabel].matrix_counts[ans.texto_opcion] || 0) + ans.count;
             }
+            // Cross-tabulation: rubro × rating per activity (for all question types)
+            if (!groupedStats[qId].options[rowLabel].rubro_rating[sectorName]) {
+                groupedStats[qId].options[rowLabel].rubro_rating[sectorName] = {};
+            }
+            groupedStats[qId].options[rowLabel].rubro_rating[sectorName][ans.texto_opcion] = (groupedStats[qId].options[rowLabel].rubro_rating[sectorName][ans.texto_opcion] || 0) + ans.count;
 
             groupedStats[qId].options[rowLabel].sector_counts[sectorName] = (groupedStats[qId].options[rowLabel].sector_counts[sectorName] || 0) + ans.count;
             groupedStats[qId].options[rowLabel].total += ans.count;
@@ -673,6 +814,7 @@ export default function Dashboard() {
                 total: g.options[row].total,
                 percentage: grandTotal > 0 ? ((g.options[row].total / grandTotal) * 100).toFixed(1) : 0,
                 matrixCounts: g.options[row].matrix_counts,
+                rubroRating: g.options[row].rubro_rating || {},
                 bars: sectorNames.map(sector => ({
                     sector,
                     count: g.options[row].sector_counts[sector] || 0,
@@ -682,11 +824,22 @@ export default function Dashboard() {
             }));
 
             if (g.tipo === 'numero' || g.tipo === 'numerico' || g.tipo === 'rango' || g.tipo === 'escala') {
+                const rubroValues = Object.entries(g.rubro_numerico || {}).map(([sector, d]) => ({
+                    sector,
+                    avg: d.count > 0 ? (d.sum / d.count) : 0,
+                    total: d.total,
+                    count: d.count
+                })).sort((a, b) => b.total - a.total);
+                const finalRespSum = g.has_rubro ? rubroValues.reduce((a, r) => a + r.total, 0) : g.count_numerico;
+                const finalRespCount = g.has_rubro ? rubroValues.reduce((a, r) => a + r.count, 0) : g.count_numerico;
                 newStats[id] = {
                     type: 'metric',
                     label: g.label,
                     seccion_id: g.seccion_id,
-                    value: g.count_numerico > 0 ? (g.sum_numerico / g.count_numerico).toFixed(1) : 'N/A'
+                    value: finalRespCount > 0 ? (g.sum_numerico / g.count_numerico).toFixed(1) : 'N/A',
+                    total: Math.round(g.sum_numerico),
+                    respuestas: finalRespSum,
+                    rubroValues
                 };
             } else {
                 newStats[id] = {
@@ -1095,15 +1248,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '0.3rem', fontWeight: '600' }}>Cámaras Activas</div>
                     <div style={{ fontSize: '2rem', fontWeight: '900' }}>{camaraActiveCount}</div>
                   </div>
-                  <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '1.2rem', borderRadius: '1rem', color: 'white', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '0.3rem', fontWeight: '600' }}>Cámara Líder</div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '900', lineHeight: 1.2 }}>{camaraLeader?.nombre || '-'}</div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.8, fontWeight: '600', marginTop: '0.2rem' }}>{camaraLeader?.total || 0} asociados</div>
-                  </div>
-                  <div style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', padding: '1.2rem', borderRadius: '1rem', color: 'white', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '0.3rem', fontWeight: '600' }}>Participación Líder</div>
-                    <div style={{ fontSize: '2rem', fontWeight: '900' }}>{camaraLeader?.percentage || 0}%</div>
-                  </div>
+
                 </div>
 
                 {/* Participación general */}
@@ -1209,14 +1354,6 @@ export default function Dashboard() {
                   <div>
                     <span style={{ fontSize: '0.7rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Cámaras activas</span>
                     <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#1e293b' }}>{camaraActiveCount}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Cámara con mayor participación</span>
-                    <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#1e293b' }}>{camaraLeader?.nombre || '-'} ({camaraLeader?.total || 0})</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Porcentaje sobre el total</span>
-                    <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#1e293b' }}>{camaraLeader?.percentage || 0}%</div>
                   </div>
                 </div>
 
@@ -1329,9 +1466,9 @@ export default function Dashboard() {
                                         })}
                                     </div>
                                 </div>
-                            );
-                        })}
-                    </div>
+                );
+              })()}
+            </div>
               </div>
             )}
           </div>
@@ -1352,7 +1489,7 @@ export default function Dashboard() {
                   </button>
                 </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
               {sectorDistribution.map(s => {
                 const isActive = selectedSectors.includes(s.nombre);
                 const color = PDF_COLORS[s.nombre.toUpperCase()] || activeSectorColors[s.nombre] || DEFAULT_SECTOR_COLOR;
@@ -1362,22 +1499,19 @@ export default function Dashboard() {
                     onClick={() => toggleSector(s.nombre)}
                     className="no-print"
                     style={{ 
-                      padding: '1.5rem', 
-                      borderRadius: '1.2rem', 
-                      background: isActive ? '#f8fafc' : '#fff', 
-                      border: isActive ? `2px solid ${color}` : '2px solid #f1f5f9',
+                      padding: '0.5rem 1rem', 
+                      borderRadius: '2rem', 
+                      background: isActive ? color : '#f1f5f9', 
+                      border: 'none',
                       cursor: 'pointer',
                       opacity: isActive ? 1 : 0.5,
-                      transition: 'all 0.3s ease',
-                      transform: isActive ? 'scale(1.02)' : 'scale(1)',
-                      boxShadow: isActive ? '0 10px 20px rgba(0,0,0,0.05)' : 'none'
+                      transition: 'all 0.2s ease',
+                      color: isActive ? '#fff' : '#64748b',
+                      fontWeight: '700',
+                      fontSize: '0.85rem'
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                        <span style={{ height: '12px', width: '12px', borderRadius: '3px', background: color }} />
-                    </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: '800', color: 'var(--text-main)' }}>{s.count}</div>
-                    <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: '500' }}>{s.nombre}</div>
+                    {s.nombre}
                   </div>
                 );
               })}
@@ -1467,15 +1601,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '0.5rem', fontWeight: '600' }}>Cámaras Activas</div>
                     <div style={{ fontSize: '2rem', fontWeight: '900' }}>{camaraActiveCount}</div>
                   </div>
-                  <div style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '1.2rem', borderRadius: '1rem', color: 'white', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '0.5rem', fontWeight: '600' }}>Cámara Líder</div>
-                    <div style={{ fontSize: '1.3rem', fontWeight: '900', lineHeight: 1.2 }}>{camaraLeader?.nombre || '-'}</div>
-                    <div style={{ fontSize: '0.8rem', opacity: 0.8, fontWeight: '600', marginTop: '0.3rem' }}>{camaraLeader?.total || 0} asociados</div>
-                  </div>
-                  <div style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', padding: '1.2rem', borderRadius: '1rem', color: 'white', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '0.5rem', fontWeight: '600' }}>Participación Líder</div>
-                    <div style={{ fontSize: '2rem', fontWeight: '900' }}>{camaraLeader?.percentage || 0}%</div>
-                  </div>
+
                 </div>
 
                 {/* Filters */}
@@ -1557,14 +1683,6 @@ export default function Dashboard() {
                   <div>
                     <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Cámaras activas</span>
                     <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#1e293b' }}>{camaraActiveCount}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Cámara con mayor participación</span>
-                    <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#1e293b' }}>{camaraLeader?.nombre || '-'} ({camaraLeader?.total || 0})</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Porcentaje sobre el total</span>
-                    <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#1e293b' }}>{camaraLeader?.percentage || 0}%</div>
                   </div>
                 </div>
 
@@ -1820,85 +1938,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Drill-down: Distribucion por Nivel de Actividad */}
-          {Object.keys(drillData).length > 0 && (
-            <div id="chart-drilldown" className="glass-card animate-slide-up" style={{ padding: '2.5rem', borderRadius: '1.5rem', background: 'white', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.2rem', marginBottom: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                  <div style={{ background: 'rgba(139, 92, 246, 0.1)', padding: '0.6rem', borderRadius: '0.8rem', color: '#8b5cf6' }}>
-                    <BarChart3 size={24} />
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: '1.35rem', fontWeight: '850', margin: 0, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>Distribucion por Nivel de Actividad</h3>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500' }}>Selecciona un rubro y una actividad para ver la evaluacion detallada</p>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                {Object.entries(drillData).map(([qId, qData]) => {
-                  const totalEnSector = qData.rows.reduce((acc, r) => acc + r.total, 0);
-                  const sectorName = qData.label.replace('Como evalua el movimiento ', '').replace(' en el ultimo mes?  Puede elegir la cantidad de rubros segun su actividad', '').replace(' en el ultimo mes?', '');
-                  return (
-                    <div key={qId} style={{ border: '1px solid #e2e8f0', borderRadius: '1rem', overflow: 'hidden' }}>
-                      <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: '800', fontSize: '1rem', color: '#1e293b', textTransform: 'uppercase' }}>{sectorName || 'General'}</span>
-                        <span style={{ fontWeight: '700', fontSize: '0.85rem', color: '#64748b' }}>{totalEnSector} respuestas</span>
-                      </div>
-                      {qData.rows.sort((a, b) => b.total - a.total).map(row => {
-                        const isExpanded = drillExpand[qId] === row.label;
-                        const rowTotal = RATING_LABELS.reduce((acc, r) => acc + (row.ratings[r] || 0), 0);
-                        return (
-                          <div key={row.label} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                            <div
-                              onClick={() => setDrillExpand({ ...drillExpand, [qId]: isExpanded ? null : row.label })}
-                              style={{
-                                padding: '0.8rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                cursor: 'pointer', background: isExpanded ? '#f1f5f9' : 'white',
-                                transition: 'background 0.15s'
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                                <span style={{ color: isExpanded ? '#8b5cf6' : '#94a3b8', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>
-                                  <ChevronRight size={16} />
-                                </span>
-                                <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#1e293b' }}>{row.label}</span>
-                              </div>
-                              <span style={{ fontWeight: '700', fontSize: '0.85rem', color: '#64748b' }}>{row.total} respuestas</span>
-                            </div>
-                            {isExpanded && rowTotal > 0 && (
-                              <div style={{ padding: '1rem 1.5rem 1.5rem 3rem', background: '#fafafa', borderTop: '1px solid #e2e8f0' }}>
-                                {RATING_LABELS.map(rating => {
-                                  const count = row.ratings[rating] || 0;
-                                  const pct = rowTotal > 0 ? ((count / rowTotal) * 100).toFixed(1) : 0;
-                                  if (count === 0) return null;
-                                  return (
-                                    <div key={rating} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '0.5rem' }}>
-                                      <div style={{ width: '100px', fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textAlign: 'right' }}>{rating}</div>
-                                      <div style={{ flex: 1, height: '20px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-                                        <div style={{ width: Math.max(Number(pct) * 2, 1) + '%', maxWidth: '100%', height: '100%', background: RATING_COLORS_MAP[rating] || '#94a3b8', borderRadius: '4px', transition: 'width 0.8s ease' }} />
-                                      </div>
-                                      <span style={{ minWidth: '80px', fontSize: '0.8rem', fontWeight: '700', color: '#1e293b', textAlign: 'right' }}>{pct}% ({count})</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                            {isExpanded && rowTotal === 0 && (
-                              <div style={{ padding: '1rem 1.5rem 1.5rem 3rem', background: '#fafafa', borderTop: '1px solid #e2e8f0', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
-                                Sin datos de evaluacion para esta actividad.
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '10rem', background: 'white', borderRadius: '1.5rem' }}>
                 <RefreshCcw className="animate-spin" size={40} color="var(--primary)" />
@@ -1921,7 +1960,7 @@ export default function Dashboard() {
                             <div id={`chart-q-${id}`} key={id} className={`glass-card animate-slide-up ${pdfSelection[`q_${id}`] === false ? 'hide-in-print' : ''}`} style={{ padding: '1.5rem 2rem', borderRadius: '1.5rem', background: 'white' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                                     <div style={{ maxWidth: '70%' }}>
-                                        <h4 style={{ fontSize: '1.15rem', fontWeight: '800', color: 'var(--text-main)', marginBottom: '0.3rem' }}>{s.label}</h4>
+                                        <h4 style={{ fontSize: '1.15rem', fontWeight: '800', color: 'var(--text-main)', marginBottom: '0.3rem' }}>{(s.label || '').toLowerCase().includes('nivel de actividad') ? 'Resultado general por actividad' : s.label}</h4>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                             <BarChart3 size={14} /> Basado en {s.grandTotal || totalRespuestas} respuestas
                                         </div>
@@ -1989,6 +2028,34 @@ export default function Dashboard() {
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* Price change summary boxes */}
+                                {s.type === 'chart-sector' && s.rows.some(r => /[↑↓]\s*-?\d+(\.\d+)?%/.test(r.label) || r.label === '0%') && (() => {
+                                    const incLabels = ['↑ 0.5%','↑ 1%','↑ 1.5%','↑ 2%','↑ 2.5%','↑ 3%','↑ 3.5%','↑ 4%','↑ 4.5%','↑ 5%'];
+                                    const noLabel = '0%';
+                                    const decLabels = ['↓ -0.5%','↓ Más de -2%'];
+                                    const inc = s.rows.filter(r => incLabels.includes(r.label)).reduce((a, r) => a + r.total, 0);
+                                    const noc = s.rows.filter(r => r.label === noLabel).reduce((a, r) => a + r.total, 0);
+                                    const dec = s.rows.filter(r => decLabels.includes(r.label)).reduce((a, r) => a + r.total, 0);
+                                    const gTotal = Math.max(inc + noc + dec, 1);
+                                    const cards = [
+                                        { label: 'Percibe Aumentos', value: inc, color: '#ef4444', bg: '#fef2f2', prefix: '↑ ', big: true },
+                                        { label: 'No Percibe Aumentos', value: noc, color: '#166534', bg: '#f0fdf4', prefix: '= ', big: false },
+                                        { label: 'Percibe Disminución', value: dec, color: '#3b82f6', bg: '#eff6ff', prefix: '↓ ', big: false }
+                                    ];
+                                    return (
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.8rem', padding: '0 0 1.2rem 0' }}>
+                                            {cards.map(c => (
+                                                <div key={c.label} style={{ background: c.bg, borderRadius: '0.8rem', padding: '0.8rem 1rem', textAlign: 'center' }}>
+                                                    <div style={{ fontSize: c.big ? '2.4rem' : '1.4rem', fontWeight: '900', color: c.color }}>
+                                                        {c.prefix}{((c.value / gTotal) * 100).toFixed(1)}%
+                                                    </div>
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em', marginTop: '0.2rem' }}>{c.label}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
 
                                 {showTrend[id] && historicalData[id] && (
                                     <div className="animate-fade-in" style={{ marginBottom: '3rem', padding: '2rem', background: '#fff', borderRadius: '1rem', border: '1px solid #e2e8f0' }}>
@@ -2102,13 +2169,17 @@ export default function Dashboard() {
 
                                 {s.type === 'chart-sector' ? (
                                     <>
-                                    <div style={{ marginBottom: '2rem' }}>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center' }}>
-                                            {Object.entries(activeSectorColors).filter(([name]) => selectedSectors.includes(name)).map(([name, color]) => (
-                                                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase' }}>
-                                                    <div style={{ width: '14px', height: '14px', background: color, borderRadius: '2px' }} /> {name}
-                                                </div>
-                                            ))}
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem', justifyContent: 'center' }}>
+                                            {Object.entries(activeSectorColors).filter(([name]) => selectedSectors.includes(name)).map(([name, color]) => {
+                                                const isActive = activeRubroDetail?.qId === id && activeRubroDetail?.rubro === name;
+                                                return (
+                                                    <div key={name} onClick={() => setActiveRubroDetail(isActive ? null : { qId: id, rubro: name })}
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.8rem', borderRadius: '2rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '800', color: isActive ? '#fff' : '#1e293b', background: isActive ? color : '#f1f5f9', textTransform: 'uppercase', transition: 'all 0.2s ease' }}>
+                                                        <div style={{ width: '10px', height: '10px', background: isActive ? '#fff' : color, borderRadius: '2px' }} /> {name}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                     
@@ -2170,11 +2241,158 @@ export default function Dashboard() {
                                             <span>0,0%</span><span>10,0%</span><span>20,0%</span><span>30,0%</span><span>40,0%</span>
                                         </div>
                                     </div>
+
+                                    {/* Detail table for selected rubro */}
+                                    {activeRubroDetail?.qId === id && s.type === 'chart-sector' && (
+                                    (() => {
+                                        const rubroName = activeRubroDetail.rubro;
+                                        // Cross-tab: Actividad × Rating (like old system)
+                                        if (rubroCrossTab && rubroCrossTab.rows.length > 0) {
+                                            const { rows, crossCats, grandTotal, crossTotals } = rubroCrossTab;
+                                            return (
+                                                <div style={{ marginTop: '1rem', borderTop: '2px solid #e2e8f0', padding: '1rem 0 0' }}>
+                                                    <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#1e293b', marginBottom: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                                        {rubroName}
+                                                    </div>
+                                                    <div style={{ overflowX: 'auto' }}>
+                                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                                            <thead>
+                                                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                                                    <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}></th>
+                                                                    {crossCats.map(cc => (
+                                                                        <th key={cc} style={{ padding: '0.4rem 0.4rem', textAlign: 'center', fontWeight: '800', color: '#475569', fontSize: '0.85rem' }}>{cc}</th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {rows.map(r => (
+                                                                    <tr key={r.label} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                        <td style={{ padding: '0.35rem 0.6rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{r.label}</td>
+                                                                        {r.values.map((v, vi) => {
+                                                                            const pct = grandTotal > 0 ? ((v / grandTotal) * 100).toFixed(1) : '0.0';
+                                                                            return (
+                                                                                <td key={vi} style={{ padding: '0.35rem 0.4rem', textAlign: 'center', fontWeight: '700', color: v > 0 ? '#1e293b' : '#cbd5e1', fontSize: '0.85rem' }}>
+                                                                                    {pct.replace('.', ',')}%
+                                                                                </td>
+                                                                            );
+                                                                        })}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                            <tfoot>
+                                                                <tr style={{ background: '#f8fafc', fontWeight: '900', borderTop: '2px solid #e2e8f0' }}>
+                                                                    <td style={{ padding: '0.4rem 0.6rem', color: '#1e293b', fontSize: '0.85rem' }}>TOTAL GENERAL</td>
+                                                                    {crossTotals.map((ct, ci) => {
+                                                                        const pct = grandTotal > 0 ? ((ct / grandTotal) * 100).toFixed(2) : '0.00';
+                                                                        return <td key={ci} style={{ padding: '0.4rem 0.4rem', textAlign: 'center', color: '#1e293b', fontSize: '0.85rem' }}>{pct.replace('.', ',')}%</td>;
+                                                                    })}
+                                                                </tr>
+                                                            </tfoot>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                        if (rubroCrossTabLoading) {
+                                            return (
+                                                <div style={{ marginTop: '1rem', borderTop: '2px solid #e2e8f0', padding: '1rem 0 0', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                                    Cargando datos...
+                                                </div>
+                                            );
+                                        }
+                                        // Build pivot table from rubroRating data for ALL rubros
+                                        const RATING_LABELS = ['MUY MALO', 'MALO', 'REGULAR', 'BUENO', 'MUY BUENO'];
+                                        const pivotRows = s.rows
+                                            .filter(row => row.rubroRating && row.rubroRating[rubroName])
+                                            .map(row => {
+                                                const ratingCounts = row.rubroRating[rubroName];
+                                                return {
+                                                    label: row.label,
+                                                    values: RATING_LABELS.map(rating => ratingCounts[rating] || 0)
+                                                };
+                                            });
+                                        if (pivotRows.length === 0) return null;
+                                        const pivotGrandTotal = pivotRows.reduce((a, row) => a + row.values.reduce((b, v) => b + v, 0), 0);
+                                        const pivotCrossTotals = RATING_LABELS.map((_, ci) =>
+                                            pivotRows.reduce((a, row) => a + row.values[ci], 0)
+                                        );
+                                        return (
+                                            <div style={{ marginTop: '1rem', borderTop: '2px solid #e2e8f0', padding: '1rem 0 0' }}>
+                                                <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#1e293b', marginBottom: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                                    {rubroName}
+                                                </div>
+                                                <div style={{ overflowX: 'auto' }}>
+                                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                                        <thead>
+                                                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                                                <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>{rubroName}</th>
+                                                                {RATING_LABELS.map(cc => (
+                                                                    <th key={cc} style={{ padding: '0.4rem 0.4rem', textAlign: 'center', fontWeight: '800', color: '#475569', fontSize: '0.85rem' }}>{cc}</th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {pivotRows.map(r => (
+                                                                <tr key={r.label} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                    <td style={{ padding: '0.35rem 0.6rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{r.label}</td>
+                                                                    {r.values.map((v, vi) => {
+                                                                        const pct = pivotGrandTotal > 0 ? ((v / pivotGrandTotal) * 100).toFixed(1) : '0.0';
+                                                                        return (
+                                                                            <td key={vi} style={{ padding: '0.35rem 0.4rem', textAlign: 'center', fontWeight: '700', color: v > 0 ? '#1e293b' : '#cbd5e1', fontSize: '0.85rem' }}>
+                                                                                {pct.replace('.', ',')}%
+                                                                            </td>
+                                                                        );
+                                                                    })}
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                        <tfoot>
+                                                            <tr style={{ background: '#f8fafc', fontWeight: '900', borderTop: '2px solid #e2e8f0' }}>
+                                                                <td style={{ padding: '0.4rem 0.6rem', color: '#1e293b', fontSize: '0.85rem' }}>TOTAL GENERAL</td>
+                                                                {pivotCrossTotals.map((ct, ci) => {
+                                                                    const pct = pivotGrandTotal > 0 ? ((ct / pivotGrandTotal) * 100).toFixed(2) : '0.00';
+                                                                    return <td key={ci} style={{ padding: '0.4rem 0.4rem', textAlign: 'center', color: '#1e293b', fontSize: '0.85rem' }}>{pct.replace('.', ',')}%</td>;
+                                                                })}
+                                                            </tr>
+                                                        </tfoot>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()
+                                    )}
+
                                     </>
+                                ) : s.type === 'metric' && s.rubroValues && s.rubroValues.length > 0 ? (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', padding: '1.5rem' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: 'var(--primary-light)', borderRadius: '1rem', padding: '1.5rem' }}>
+                                            <div style={{ fontSize: '2.4rem', fontWeight: '900', color: 'var(--primary)' }}>{s.respuestas}</div>
+                                            <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginTop: '0.3rem' }}>Respuestas</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>Total empleados: {s.total}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: '700', fontSize: '0.8rem', color: '#1e293b', marginBottom: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Respuestas por Rubro</div>
+                                            {s.rubroValues.map(r => {
+                                                const maxVal = Math.max(...s.rubroValues.map(x => x.total), 1);
+                                                const bw = (r.total / maxVal) * 100;
+                                                return (
+                                                    <div key={r.sector} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                                                        <span style={{ minWidth: '100px', fontSize: '0.75rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sector}</span>
+                                                        <div style={{ flex: 1, height: '18px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                                                            <div style={{ width: `${Math.max(bw, 2)}%`, height: '100%', background: '#8b5cf6', borderRadius: '4px', display: 'flex', alignItems: 'center', paddingLeft: '6px' }}>
+                                                                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'white' }}>{r.total}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span style={{ minWidth: '30px', fontSize: '0.7rem', fontWeight: '700', color: '#6b7280' }}>({r.avg.toFixed(1)})</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
                                 ) : (
                                     <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--primary-light)', borderRadius: '1rem' }}>
-                                        <div style={{ fontSize: '3rem', fontWeight: '800', color: 'var(--primary)' }}>{s.value}</div>
-                                        <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Valor Promedio</div>
+                                        <div style={{ fontSize: '3rem', fontWeight: '800', color: 'var(--primary)' }}>{s.total || s.value}</div>
+                                        <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Total empleados</div>
                                     </div>
                                 )}
                             </div>

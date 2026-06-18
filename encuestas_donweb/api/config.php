@@ -3,11 +3,18 @@
 
 require_once __DIR__ . '/logger.php';
 
+// ── Cache ──────────────────────────────────────────────────────────────
+// Deshabilitar caché completamente en todas las respuestas de la API
+header("Cache-Control: no-cache, no-store, must-revalidate, private");
+header("Pragma: no-cache");
+header("Expires: 0");
+
 // ── PHP Error Handling ─────────────────────────────────────────────────
+// No mostrar errores al usuario, solo registrarlos
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
-ini_set('error_log', __DIR__ . '/../logs/php_error.log');
+ini_set('error_log', __DIR__ . '/../../logs/php_error.log');
 
 // Manejador global de excepciones no capturadas
 set_exception_handler(function ($exception) {

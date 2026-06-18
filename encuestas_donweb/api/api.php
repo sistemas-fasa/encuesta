@@ -751,13 +751,14 @@ switch ($method) {
             // 2. Query Statistics
             $sqlStats = "SELECT r.pregunta_id, p.texto_pregunta, p.tipo, p.seccion_id, 
                                 o.texto_opcion, r.valor_texto,
-                                r.sector_id, s.nombre as sector_nombre, s.color as sector_color,
+                                COALESCE(r.sector_id, sec.sector_id) as sector_id, s.nombre as sector_nombre, s.color as sector_color,
                                 COUNT(*) as count, AVG(r.valor_numerico) as promedio
                         FROM respuesta r
                         $sessionJoin
                         JOIN pregunta p ON r.pregunta_id = p.id
+                        LEFT JOIN seccion sec ON p.seccion_id = sec.id
                         LEFT JOIN opcion o ON r.opcion_id = o.id
-                        LEFT JOIN sector s ON r.sector_id = s.id
+                        LEFT JOIN sector s ON s.id = COALESCE(r.sector_id, sec.sector_id)
                         WHERE r.encuesta_periodo_id = ?
                           AND (p.tipo NOT IN ('numero', 'numerico', 'rango', 'escala') OR (r.valor_numerico IS NOT NULL AND r.valor_numerico != 0))";
             $paramsStats = array_merge([$periodo_id], $sessionParams);
@@ -766,7 +767,7 @@ switch ($method) {
             if ($seccion_id) { $sqlStats .= " AND p.seccion_id = ?"; $paramsStats[] = $seccion_id; }
             if ($sector_id) { $sqlStats .= " AND r.sector_id = ?"; $paramsStats[] = $sector_id; }
             
-            $sqlStats .= $sessionWhere . " GROUP BY r.pregunta_id, p.texto_pregunta, p.tipo, p.seccion_id, o.id, o.texto_opcion, r.valor_texto, r.sector_id, s.nombre, s.color";
+            $sqlStats .= $sessionWhere . " GROUP BY r.pregunta_id, p.texto_pregunta, p.tipo, p.seccion_id, o.id, o.texto_opcion, r.valor_texto, COALESCE(r.sector_id, sec.sector_id), s.nombre, s.color";
             $stmt = $pdo->prepare($sqlStats);
             $stmt->execute($paramsStats);
             $answers = $stmt->fetchAll();
@@ -1091,7 +1092,9 @@ switch ($method) {
                                 COALESCE(r_cross.valor_texto, opt_cross.texto_opcion) as cross_categoria,
                                 NULL as cross_color,
                                 COUNT(DISTINCT r_base.id) as cantidad,
-                                AVG(r_base.valor_numerico) as promedio_base
+                                AVG(r_base.valor_numerico) as promedio_base,
+                                COALESCE(r_base.sector_id, sec.sector_id) as sector_id,
+                                s.nombre as sector_nombre
                             FROM respuesta r_base
                             JOIN pregunta p_base ON r_base.pregunta_id = p_base.id
                             LEFT JOIN opcion opt_base ON r_base.opcion_id = opt_base.id
@@ -1100,6 +1103,8 @@ switch ($method) {
                                 AND r_base.fecha_respuesta = r_cross.fecha_respuesta
                             JOIN pregunta p_cross ON r_cross.pregunta_id = p_cross.id
                             LEFT JOIN opcion opt_cross ON r_cross.opcion_id = opt_cross.id
+                            LEFT JOIN seccion sec ON p_base.seccion_id = sec.id
+                            LEFT JOIN sector s ON s.id = COALESCE(r_base.sector_id, sec.sector_id)
                             WHERE r_base.encuesta_periodo_id = ?
                               AND p_base.id = ?
                               AND p_cross.id = ?
@@ -1112,7 +1117,7 @@ switch ($method) {
                     $paramsPivot[] = $localidad_id;
                 }
 
-                $sqlPivot .= " GROUP BY base_categoria, cross_categoria ORDER BY base_categoria, cross_categoria";
+                $sqlPivot .= " GROUP BY base_categoria, cross_categoria, sector_id, sector_nombre ORDER BY base_categoria, cross_categoria";
             }
 
             $stmtPivot = $pdo->prepare($sqlPivot);

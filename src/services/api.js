@@ -327,9 +327,10 @@ export const api = {
         }
         return response.json();
     },
-    getStatsPivot: async (periodoId, basePreguntaId, crossPreguntaId, localidadId) => {
+    getStatsPivot: async (periodoId, basePreguntaId, crossPreguntaId, localidadId, sectorNombre) => {
         let url = `${API_URL}/stats-pivot/${periodoId}?base_pregunta_id=${basePreguntaId}&cross_pregunta_id=${crossPreguntaId}`;
         if (localidadId) url += `&localidad_id=${localidadId}`;
+        if (sectorNombre) url += `&sector_nombre=${encodeURIComponent(sectorNombre)}`;
         const response = await fetchWithCreds(url);
         if (!response.ok) {
             const err = await response.json();
