@@ -2408,14 +2408,20 @@ export default function Dashboard() {
                                             {s.rubroValues.map(r => {
                                                 const maxVal = Math.max(...s.rubroValues.map(x => x.sum), 1);
                                                 const bw = (r.sum / maxVal) * 100;
+                                                const barW = Math.max(bw, 8);
                                                 return (
                                                     <div key={r.sector} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
                                                         <span style={{ minWidth: '100px', fontSize: '0.75rem', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sector}</span>
                                                         <div style={{ flex: 1, height: '18px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-                                                            <div style={{ width: `${Math.max(bw, 2)}%`, height: '100%', background: '#8b5cf6', borderRadius: '4px', display: 'flex', alignItems: 'center', paddingLeft: '6px' }}>
-                                                                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'white' }}>{r.sum}</span>
+                                                            <div style={{ width: `${barW}%`, height: '100%', background: '#8b5cf6', borderRadius: '4px', display: 'flex', alignItems: 'center', paddingLeft: bw < 12 ? '0' : '6px', justifyContent: bw < 12 ? 'flex-end' : 'flex-start', paddingRight: bw < 12 ? '4px' : '0' }}>
+                                                                {bw >= 12 ? (
+                                                                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'white' }}>{r.sum}</span>
+                                                                ) : null}
                                                             </div>
                                                         </div>
+                                                        {bw < 12 ? (
+                                                            <span style={{ minWidth: '20px', fontSize: '0.65rem', fontWeight: '800', color: '#1e293b' }}>{r.sum}</span>
+                                                        ) : null}
                                                         <span style={{ minWidth: '30px', fontSize: '0.7rem', fontWeight: '700', color: '#6b7280' }}>({r.avg.toFixed(1)})</span>
                                                     </div>
                                                 );
