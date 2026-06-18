@@ -744,7 +744,7 @@ export default function Dashboard() {
                     sum_numerico: 0,
                     count_numerico: 0,
                     rubro_numerico: {}, // { sectorName: { sum, count } }
-                    subrubroPivot: {} // { subrubro: { rating: count } }
+                    subrubroPivot: {} // { subrubro: { sectorName: { rating: count } } }
                 };
             }
             
@@ -805,7 +805,8 @@ export default function Dashboard() {
             }
             if (pivotSubrubro) {
                 if (!groupedStats[qId].subrubroPivot[pivotSubrubro]) groupedStats[qId].subrubroPivot[pivotSubrubro] = {};
-                groupedStats[qId].subrubroPivot[pivotSubrubro][ans.texto_opcion] = (groupedStats[qId].subrubroPivot[pivotSubrubro][ans.texto_opcion] || 0) + ans.count;
+                if (!groupedStats[qId].subrubroPivot[pivotSubrubro][sectorName]) groupedStats[qId].subrubroPivot[pivotSubrubro][sectorName] = {};
+                groupedStats[qId].subrubroPivot[pivotSubrubro][sectorName][ans.texto_opcion] = (groupedStats[qId].subrubroPivot[pivotSubrubro][sectorName][ans.texto_opcion] || 0) + ans.count;
             }
 
             groupedStats[qId].options[rowLabel].sector_counts[sectorName] = (groupedStats[qId].options[rowLabel].sector_counts[sectorName] || 0) + ans.count;
@@ -2332,11 +2333,13 @@ export default function Dashboard() {
                                         // Build pivot table from subrubroPivot data for ALL rubros
                                         const RATING_LABELS = ['MUY MALO', 'MALO', 'REGULAR', 'BUENO', 'MUY BUENO'];
                                         const pivotData = s.subrubroPivot || {};
-                                        const pivotSubrubros = Object.keys(pivotData).sort();
+                                        const pivotSubrubros = Object.keys(pivotData)
+                                            .filter(sr => pivotData[sr][rubroName])
+                                            .sort();
                                         if (pivotSubrubros.length === 0) return null;
                                         const pivotRows = pivotSubrubros.map(sr => ({
                                             label: sr,
-                                            values: RATING_LABELS.map(rating => pivotData[sr][rating] || 0)
+                                            values: RATING_LABELS.map(rating => pivotData[sr][rubroName][rating] || 0)
                                         }));
                                         const pivotGrandTotal = pivotRows.reduce((a, row) => a + row.values.reduce((b, v) => b + v, 0), 0);
                                         const pivotCrossTotals = RATING_LABELS.map((_, ci) =>
