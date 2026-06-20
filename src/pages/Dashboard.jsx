@@ -729,6 +729,14 @@ export default function Dashboard() {
 
             const isNumericType = ans.tipo === 'numero' || ans.tipo === 'numerico' || ans.tipo === 'rango' || ans.tipo === 'escala';
 
+            // Use valor_texto as texto_opcion for abierta questions that have choice-like answers
+            if (!ans.texto_opcion && ans.valor_texto && (ans.tipo === 'abierta' || ans.tipo === 'texto')) {
+                const vt = ans.valor_texto.trim().toLowerCase();
+                if (['si', 'sí', 'no', 'no sabe', 'ns/nc'].includes(vt)) {
+                    ans.texto_opcion = ans.valor_texto.trim();
+                }
+            }
+
             // Skip if missing critical data
             if (!ans.texto_opcion && ans.tipo !== 'cuadricula' && ans.tipo !== 'selector_rubro' && !isNumericType) return;
             if ((ans.tipo === 'cuadricula' || ans.tipo === 'selector_rubro') && !ans.valor_texto) return;
