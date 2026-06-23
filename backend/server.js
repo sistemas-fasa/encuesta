@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import multer from 'multer';
 
 // Load environment variables
 dotenv.config();
@@ -41,6 +42,30 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Multer config for trend image uploads
+const uploadsDir = path.join(__dirname, '../public/uploads/trends');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+const trendStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+        const { encuesta_id, pregunta_id } = req.params;
+        const ext = path.extname(file.originalname) || '.png';
+        cb(null, `trend_${encuesta_id}_${pregunta_id}_${Date.now()}${ext}`);
+    }
+});
+const uploadTrend = multer({ 
+    storage: trendStorage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, allowed.includes(ext));
+    }
+});
 
 // MySQL Connection Pool (using .env config)
 const pool = mysql.createPool({
@@ -74,6 +99,36 @@ const testConnection = async () => {
         } catch (err) {
             console.log('Adding color column to seccion table...');
             await connection.query("ALTER TABLE seccion ADD COLUMN color VARCHAR(50) DEFAULT '#94a3b8'");
+        }
+
+        // Migration: tendencia_imagen table
+        try {
+            await connection.query(`
+                CREATE TABLE IF NOT EXISTS tendencia_imagen (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    encuesta_id INT NOT NULL,
+                    pregunta_id INT NOT NULL,
+                    sector_id INT NULL,
+                    imagen_path VARCHAR(500) NOT NULL,
+                    fecha_subida DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (encuesta_id) REFERENCES encuesta(id) ON DELETE CASCADE,
+                    FOREIGN KEY (pregunta_id) REFERENCES pregunta(id) ON DELETE CASCADE,
+                    UNIQUE KEY uk_encuesta_pregunta_sector (encuesta_id, pregunta_id, sector_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            `);
+            // Add sector_id column if not exists (for existing tables)
+            try {
+                await connection.query("ALTER TABLE tendencia_imagen ADD COLUMN sector_id INT NULL AFTER pregunta_id");
+            } catch (e) { /* already exists */ }
+            try {
+                await connection.query("ALTER TABLE tendencia_imagen DROP INDEX uk_encuesta_pregunta");
+            } catch (e) { /* may not exist */ }
+            try {
+                await connection.query("ALTER TABLE tendencia_imagen ADD UNIQUE KEY uk_encuesta_pregunta_sector (encuesta_id, pregunta_id, sector_id)");
+            } catch (e) { /* already exists */ }
+            console.log('tendencia_imagen table ready');
+        } catch (err) {
+            console.log('Note: tendencia_imagen table:', err.message);
         }
         
         connection.release();
@@ -1253,6 +1308,98 @@ app.get('/api/stats-historical/:encuesta_id/:pregunta_id', isAuthenticated, asyn
         res.json(rows);
     } catch (error) {
         console.error('Historical Stats Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// TREND IMAGE UPLOAD (solo para encuestas cerradas)
+app.post('/api/trend-image/:encuesta_id/:pregunta_id', isAuthenticated, (req, res, next) => {
+    uploadTrend.single('image')(req, res, async (err) => {
+        if (err) {
+            if (err instanceof multer.MulterError) {
+                return res.status(400).json({ error: 'Error al subir archivo: ' + err.message });
+            }
+            return res.status(400).json({ error: err.message });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se envió ninguna imagen' });
+        }
+        try {
+            const { encuesta_id, pregunta_id } = req.params;
+            const sector_id = req.body.sector_id || null;
+            // Verificar que la encuesta esté cerrada
+            const [enc] = await pool.query('SELECT estado FROM encuesta WHERE id = ?', [encuesta_id]);
+            if (enc.length === 0) return res.status(404).json({ error: 'Encuesta no encontrada' });
+            if (enc[0].estado !== 0) return res.status(403).json({ error: 'Solo se pueden subir imágenes en encuestas cerradas' });
+
+            const imagenPath = '/uploads/trends/' + req.file.filename;
+            // Upsert with sector_id
+            await pool.query(
+                'INSERT INTO tendencia_imagen (encuesta_id, pregunta_id, sector_id, imagen_path, fecha_subida) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE imagen_path = ?, fecha_subida = NOW()',
+                [encuesta_id, pregunta_id, sector_id, imagenPath, imagenPath]
+            );
+            res.json({ success: true, imagen_path: imagenPath, sector_id });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+});
+
+// GET trend image(s) - if sector_id provided, get sector-specific; otherwise get general or all
+app.get('/api/trend-image/:encuesta_id/:pregunta_id', isAuthenticated, async (req, res) => {
+    try {
+        const { encuesta_id, pregunta_id } = req.params;
+        const { sector_id } = req.query;
+        let rows;
+        if (sector_id) {
+            [rows] = await pool.query(
+                'SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id = ?',
+                [encuesta_id, pregunta_id, sector_id]
+            );
+        } else {
+            [rows] = await pool.query(
+                'SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? ORDER BY sector_id IS NULL, sector_id',
+                [encuesta_id, pregunta_id]
+            );
+        }
+        if (rows.length === 0) return res.json(null);
+        // Return single object if only one, otherwise array
+        res.json(sector_id ? rows[0] : (rows.length === 1 ? rows[0] : rows));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE trend image
+app.delete('/api/trend-image/:encuesta_id/:pregunta_id', isAuthenticated, async (req, res) => {
+    try {
+        const { encuesta_id, pregunta_id } = req.params;
+        const { sector_id } = req.query;
+        let rows;
+        if (sector_id) {
+            [rows] = await pool.query(
+                'SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id = ?',
+                [encuesta_id, pregunta_id, sector_id]
+            );
+        } else {
+            [rows] = await pool.query(
+                'SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ?',
+                [encuesta_id, pregunta_id]
+            );
+        }
+        for (const row of rows) {
+            const filePath = path.join(__dirname, '../public', row.imagen_path);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        }
+        if (sector_id) {
+            await pool.query('DELETE FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id = ?',
+                [encuesta_id, pregunta_id, sector_id]);
+        } else {
+            await pool.query('DELETE FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ?',
+                [encuesta_id, pregunta_id]);
+        }
+        res.json({ success: true });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });

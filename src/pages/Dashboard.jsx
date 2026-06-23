@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { api, API_URL } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import { 
@@ -37,7 +37,9 @@ import {
   ArrowRight,
   GitMerge,
   BarChart2,
-  Camera
+  Camera,
+  Upload,
+  Image
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
@@ -61,14 +63,14 @@ const barLabelPlugin = {
     const meta = chart.getDatasetMeta(0);
     if (!meta || !meta.data) return;
     ctx.save();
-    ctx.font = 'bold 12px Inter, system-ui, sans-serif';
+    ctx.font = 'bold 13px Inter, system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     meta.data.forEach((bar, idx) => {
       const val = chart.data.datasets[0].data[idx];
       if (val === 0) return;
       const pct = chart.data.datasets[0].percentages?.[idx] || '';
-      ctx.fillStyle = '#1e293b';
+      ctx.fillStyle = '#000000';
       ctx.fillText(`${val} (${pct}%)`, bar.x + 8, bar.y);
     });
     ctx.restore();
@@ -108,6 +110,11 @@ export default function Dashboard() {
   const [showSummary, setShowSummary] = useState({});
   const [showTrend, setShowTrend] = useState({});
   const [historicalData, setHistoricalData] = useState({});
+  const [trendImages, setTrendImages] = useState({});
+  const [uploadingTrend, setUploadingTrend] = useState({});
+  const [enlargedImage, setEnlargedImage] = useState(null);
+  const [camaras, setCamaras] = useState([]);
+  const [selectedCamaraId, setSelectedCamaraId] = useState('');
   const [camaraStats, setCamaraStats] = useState([]);
   const [ivaStats, setIvaStats] = useState([]);
   const [debugIva, setDebugIva] = useState(null);
@@ -330,69 +337,132 @@ export default function Dashboard() {
       }
 
       try {
-          // Get sector from current section filter if any
           const sec = secciones.find(s => s.id === Number(selectedSeccionId));
           const sectorId = sec ? sec.sector_id : null;
-          
+
+          // Fetch historical data
           const data = await api.getHistoricalStats(selectedEncuestaId, preguntaId, sectorId, selectedLocalidadId);
-          
-          if (!data || data.length === 0) {
-              alert("No hay datos suficientes en otros periodos para mostrar una tendencia.");
-              return;
-          }
 
-          const periods = [...new Set(data.map(d => `${d.mes}/${d.anio}`))];
-          const hasOptions = data.some(d => d.texto_opcion);
-          
-          let datasets = [];
-
-          if (hasOptions) {
-              const options = [...new Set(data.map(d => d.texto_opcion))].filter(Boolean);
-              datasets = options.map(opt => ({
-                  label: opt,
-                  data: periods.map(p => {
-                      const perRows = data.filter(d => `${d.mes}/${d.anio}` === p);
-                      const totalPer = perRows.reduce((acc, curr) => acc + curr.count, 0);
-                      const optRow = perRows.find(d => d.texto_opcion === opt);
-                      return totalPer > 0 ? ((optRow?.count || 0) / totalPer * 100).toFixed(1) : 0;
-                  }),
-                  borderColor: RATING_COLORS[opt.toUpperCase()] || RATING_COLORS.DEFAULT,
-                  backgroundColor: (RATING_COLORS[opt.toUpperCase()] || RATING_COLORS.DEFAULT) + '33',
-                  tension: 0.3,
-                  fill: false,
-                  pointRadius: 6,
-                  pointBackgroundColor: 'white',
-                  borderWidth: 3
-              }));
+          // Fetch trend images for each selected sector, plus a general fallback
+          let allTrendImages = {};
+          const s = stats[preguntaId];
+          const isActivity = (s.label || '').toLowerCase().includes('nivel de actividad') || (s.label || '').toLowerCase().includes('resultado general');
+          if (isActivity && selectedSectors.length > 0 && sectorDistribution.length > 0) {
+              const sectorPromises = selectedSectors.map(async (sectorName) => {
+                  const sector = sectorDistribution.find(s => s.nombre === sectorName);
+                  if (!sector) return null;
+                  const img = await api.getTrendImage(selectedEncuestaId, preguntaId, sector.sector_id);
+                  if (img) return { sectorId: sector.sector_id, sectorName: sector.nombre, data: img };
+                  return null;
+              });
+              const results = await Promise.all(sectorPromises);
+              results.forEach(r => {
+                  if (r) allTrendImages[`${preguntaId}_${r.sectorId}`] = { ...r.data, sectorName: r.sectorName, sectorId: r.sectorId };
+              });
           } else {
-              // Numeric Trend
-              datasets = [{
-                  label: 'Valor Promedio',
-                  data: periods.map(p => {
-                      const row = data.find(d => `${d.mes}/${d.anio}` === p);
-                      return row ? row.avg_value.toFixed(2) : 0;
-                  }),
-                  borderColor: 'var(--primary)',
-                  backgroundColor: 'var(--primary-light)',
-                  tension: 0.3,
-                  fill: true,
-                  pointRadius: 6,
-                  pointBackgroundColor: 'white',
-                  borderWidth: 3
-              }];
+              const trendImg = await api.getTrendImage(selectedEncuestaId, preguntaId, null);
+              if (trendImg) {
+                  allTrendImages[`${preguntaId}_general`] = trendImg;
+              }
           }
 
-          setHistoricalData({
-              ...historicalData,
-              [preguntaId]: {
-                  labels: periods,
-                  datasets: datasets
+          setTrendImages({ ...trendImages, ...allTrendImages });
+
+          if (data && data.length > 0) {
+              const periods = [...new Set(data.map(d => `${d.mes}/${d.anio}`))];
+              const hasOptions = data.some(d => d.texto_opcion);
+              
+              let datasets = [];
+
+              if (hasOptions) {
+                  const options = [...new Set(data.map(d => d.texto_opcion))].filter(Boolean);
+                  datasets = options.map(opt => ({
+                      label: opt,
+                      data: periods.map(p => {
+                          const perRows = data.filter(d => `${d.mes}/${d.anio}` === p);
+                          const totalPer = perRows.reduce((acc, curr) => acc + curr.count, 0);
+                          const optRow = perRows.find(d => d.texto_opcion === opt);
+                          return totalPer > 0 ? ((optRow?.count || 0) / totalPer * 100).toFixed(1) : 0;
+                      }),
+                      borderColor: RATING_COLORS[opt.toUpperCase()] || RATING_COLORS.DEFAULT,
+                      backgroundColor: (RATING_COLORS[opt.toUpperCase()] || RATING_COLORS.DEFAULT) + '33',
+                      tension: 0.3,
+                      fill: false,
+                      pointRadius: 6,
+                      pointBackgroundColor: 'white',
+                      borderWidth: 3
+                  }));
+              } else {
+                  datasets = [{
+                      label: 'Valor Promedio',
+                      data: periods.map(p => {
+                          const row = data.find(d => `${d.mes}/${d.anio}` === p);
+                          return row ? row.avg_value.toFixed(2) : 0;
+                      }),
+                      borderColor: 'var(--primary)',
+                      backgroundColor: 'var(--primary-light)',
+                      tension: 0.3,
+                      fill: true,
+                      pointRadius: 6,
+                      pointBackgroundColor: 'white',
+                      borderWidth: 3
+                  }];
               }
-          });
+
+              setHistoricalData({
+                  ...historicalData,
+                  [preguntaId]: {
+                      labels: periods,
+                      datasets: datasets
+                  }
+              });
+          }
+
           setShowTrend({ ...showTrend, [preguntaId]: true });
       } catch (error) {
           console.error('Error loading trend:', error);
       }
+  };
+
+  const handleUploadTrendImage = async (preguntaId, file, sectorId) => {
+      setUploadingTrend({ ...uploadingTrend, [preguntaId]: true });
+      try {
+          const result = await api.uploadTrendImage(selectedEncuestaId, preguntaId, file, sectorId || null);
+          const key = sectorId ? `${preguntaId}_${sectorId}` : `${preguntaId}_general`;
+          const sector = sectorId ? sectorDistribution.find(s => s.sector_id == sectorId) : null;
+          setTrendImages({ ...trendImages, [key]: { ...result, sectorName: sector?.nombre, sectorId } });
+      } catch (error) {
+          alert(error.message);
+      } finally {
+          setUploadingTrend({ ...uploadingTrend, [preguntaId]: false });
+      }
+  };
+
+  const handleDeleteTrendImage = async (preguntaId, sectorId) => {
+      try {
+          await api.deleteTrendImage(selectedEncuestaId, preguntaId, sectorId || null);
+          const key = sectorId ? `${preguntaId}_${sectorId}` : `${preguntaId}_general`;
+          const updated = { ...trendImages };
+          delete updated[key];
+          setTrendImages(updated);
+      } catch (error) {
+          alert(error.message);
+      }
+  };
+
+  const getTrendImageUrl = (preguntaId, sectorId) => {
+      if (import.meta.env.MODE === 'production') {
+          let url = `${API_URL}/trend-image/${selectedEncuestaId}/${preguntaId}?raw=1`;
+          if (sectorId) url += `&sector_id=${sectorId}`;
+          return url;
+      }
+      const key = sectorId ? `${preguntaId}_${sectorId}` : `${preguntaId}_general`;
+      const imgPath = trendImages[key]?.imagen_path || '';
+      // En desarrollo, el backend está en localhost:3001 y sirve /uploads estáticos desde allí
+      if (imgPath && imgPath.startsWith('/')) {
+          return 'http://localhost:3001' + imgPath;
+      }
+      return imgPath;
   };
 
   const processedIvaData = React.useMemo(() => {
@@ -639,13 +709,13 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (selectedPeriodoId) {
-      loadStats(selectedPeriodoId, selectedLocalidadId, selectedSeccionId, null, selectedIvaStatus);
+      loadStats(selectedPeriodoId, selectedLocalidadId, selectedSeccionId, null, selectedIvaStatus, selectedCamaraId);
     } else {
         setStats({});
         setTotalRespuestas(0);
         setLocalidadStats([]);
     }
-  }, [selectedPeriodoId, selectedLocalidadId, selectedSeccionId, selectedIvaStatus]);
+  }, [selectedPeriodoId, selectedLocalidadId, selectedSeccionId, selectedIvaStatus, selectedCamaraId]);
 
   const loadInitialData = async () => {
     try {
@@ -654,7 +724,8 @@ export default function Dashboard() {
             api.getAuxData()
         ]);
         setEncuestas(eData);
-        setLocalidades(lData.localidades);
+        setLocalidades(lData.localidades || []);
+        setCamaras(lData.camaras || []);
         if (eData.length > 0) setSelectedEncuestaId(eData[0].id);
     } catch (error) {
         console.error('Error loading surveys:', error);
@@ -684,10 +755,10 @@ export default function Dashboard() {
     }
   };
 
-  const loadStats = async (periodoId, localidadId, seccionId, sectorId, ivaStatus) => {
+  const loadStats = async (periodoId, localidadId, seccionId, sectorId, ivaStatus, camaraId) => {
     setLoading(true);
     try {
-        const rawData = await api.getStats(periodoId, localidadId, seccionId, sectorId, ivaStatus);
+        const rawData = await api.getStats(periodoId, localidadId, seccionId, sectorId, ivaStatus, camaraId || selectedCamaraId);
         
         // Normalize keys to lowercase for cross-server compatibility (PHP/Node)
         const normalize = (obj) => {
@@ -894,6 +965,42 @@ export default function Dashboard() {
 
         setStats(newStats);
         if (rawData._debug_iva) setDebugIva(rawData._debug_iva);
+
+        // Pre-fetch trend images for all loaded questions so they exist on refresh
+        try {
+            const statsKeys = Object.keys(newStats);
+            const allTrendImages = {};
+            const sectorId = selectedSeccionId ? (secciones.find(s => s.id === Number(selectedSeccionId))?.sector_id || null) : null;
+            
+            const trendPromises = statsKeys.map(async (qId) => {
+                const s = newStats[qId];
+                if (s.type !== 'chart-sector') return;
+                
+                const isActivity = (s.label || '').toLowerCase().includes('nivel de actividad') || (s.label || '').toLowerCase().includes('resultado general');
+                if (isActivity && selectedSectors.length > 0 && data.sectorDistribution.length > 0) {
+                    const sectorPromises = selectedSectors.map(async (sectorName) => {
+                        const sector = data.sectorDistribution.find(sec => sec.nombre === sectorName);
+                        if (!sector) return null;
+                        const img = await api.getTrendImage(selectedEncuestaId, qId, sector.sector_id);
+                        if (img) return { sectorId: sector.sector_id, data: img };
+                        return null;
+                    });
+                    const results = await Promise.all(sectorPromises);
+                    results.forEach(r => {
+                        if (r) allTrendImages[`${qId}_${r.sectorId}`] = r.data;
+                    });
+                } else {
+                    const trendImg = await api.getTrendImage(selectedEncuestaId, qId, null);
+                    if (trendImg) {
+                        allTrendImages[`${qId}_general`] = trendImg;
+                    }
+                }
+            });
+            await Promise.all(trendPromises);
+            setTrendImages(allTrendImages);
+        } catch (trendError) {
+            console.error('Error pre-fetching trend images:', trendError);
+        }
     } catch (error) {
         console.error('Error loading stats:', error);
     } finally {
@@ -1177,7 +1284,15 @@ export default function Dashboard() {
                   </select>
                 </div>
 
-              <button className="btn btn-outline" style={{ width: '100%', marginTop: '0.5rem', borderColor: '#e2e8f0', color: '#64748b' }} onClick={() => { setSelectedLocalidadId(''); setSelectedSeccionId(''); setSelectedIvaStatus(''); if (periodos.length > 0) setSelectedPeriodoId(periodos[0].id); }}>
+                <div className="input-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem', color: '#94a3b8' }}>Cámara</label>
+                  <select value={selectedCamaraId} onChange={(e) => setSelectedCamaraId(e.target.value)} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '0.8rem', padding: '0.8rem' }}>
+                    <option value="">Todas las cámaras</option>
+                    {camaras.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+
+              <button className="btn btn-outline" style={{ width: '100%', marginTop: '0.5rem', borderColor: '#e2e8f0', color: '#64748b' }} onClick={() => { setSelectedLocalidadId(''); setSelectedSeccionId(''); setSelectedIvaStatus(''); setSelectedCamaraId(''); if (periodos.length > 0) setSelectedPeriodoId(periodos[0].id); }}>
                 <RefreshCcw size={16} /> Limpiar Filtros
               </button>
             </div>
@@ -1307,7 +1422,7 @@ export default function Dashboard() {
                                 <div key={rIdx} className="chart-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderBottom: rIdx === pivotData.rows.length - 1 ? 'none' : '1px solid #e2e8f0', background: 'white' }}>
                                     <div style={{ padding: '0.8rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #e2e8f0', textAlign: 'center', background: '#f8fafc' }}>
                                         <div style={{ fontWeight: '700', fontSize: '0.75rem', lineHeight: '1.2', marginBottom: '0.5rem', color: '#1e293b' }}>{row.label}</div>
-                                        <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--primary)' }}>{displayPct}%</div>
+                                        <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: '#000000' }}>{displayPct}%</div>
                                         <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>Total: {row.total}</div>
                                     </div>
                                     <div className="bar-container" style={{ padding: '0.8rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'center' }}>
@@ -1316,9 +1431,9 @@ export default function Dashboard() {
                                             const barRelPct = grandSelectedTotal > 0 ? ((bar.count / grandSelectedTotal) * 100).toFixed(1) : 0;
                                             return (
                                                 <div key={bIdx} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                                                    <div style={{ width: '60px', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={bar.sector}>{bar.sector}</div>
+                                                    <div style={{ width: '60px', fontSize: '0.65rem', fontWeight: '800', color: '#000000', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={bar.sector}>{bar.sector}</div>
                                                     <div style={{ height: '12px', width: `${Math.max(barRelPct * 2, 2)}%`, maxWidth: '85%', background: bar.color, borderRadius: '2px', transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                                                    <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>{barRelPct}% ({bar.count})</span>
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#000000' }}>{barRelPct}% ({bar.count})</span>
                                                 </div>
                                             );
                                         })}
@@ -2063,6 +2178,31 @@ export default function Dashboard() {
                                         >
                                             {showTrend[id] ? 'Ocultar Tendencia' : 'Ver Tendencia'}
                                         </button>
+
+                                        {/* Upload image button for closed surveys (always visible) */}
+                                        {encuestas.find(e => e.id === selectedEncuestaId)?.estado === 0 && !showTrend[id] && (
+                                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                                                {trendImages[`${id}_general`] ? (
+                                                    <button className="btn btn-outline btn-small" title="Cambiar imagen de tendencia"
+                                                        style={{ padding: '0.5rem', fontSize: '0.75rem', borderRadius: '0.8rem', color: '#0ea5e9', borderColor: '#bae6fd', background: '#f0f9ff' }}
+                                                        onClick={() => document.getElementById(`upload-trend-${id}`)?.click()}>
+                                                        <Image size={16} />
+                                                    </button>
+                                                ) : (
+                                                    <button className="btn btn-outline btn-small" title="Subir imagen de tendencia"
+                                                        style={{ padding: '0.5rem', fontSize: '0.75rem', borderRadius: '0.8rem', color: '#0ea5e9', borderColor: '#bae6fd', background: '#f0f9ff' }}
+                                                        onClick={() => document.getElementById(`upload-trend-${id}`)?.click()}>
+                                                        <Upload size={16} />
+                                                    </button>
+                                                )}
+                                                <input id={`upload-trend-${id}`} type="file" accept="image/*" hidden onChange={(e) => {
+                                                    if (e.target.files[0]) {
+                                                        handleUploadTrendImage(id, e.target.files[0], null);
+                                                        e.target.value = '';
+                                                    }
+                                                }} />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -2094,40 +2234,144 @@ export default function Dashboard() {
                                     );
                                 })()}
 
-                                {showTrend[id] && historicalData[id] && (
+                                {showTrend[id] && (
                                     <div className="animate-fade-in" style={{ marginBottom: '3rem', padding: '2rem', background: '#fff', borderRadius: '1rem', border: '1px solid #e2e8f0' }}>
                                         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
                                             <h5 style={{ fontSize: '1rem', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                                Tendencia Histórica: {s.label}
+                                                Tendencia: {s.label}
                                             </h5>
                                         </div>
-                                        <div style={{ height: '400px' }}>
-                                            <Line 
-                                                data={historicalData[id]} 
-                                                options={{
-                                                    responsive: true,
-                                                    maintainAspectRatio: false,
-                                                    plugins: {
-                                                        legend: { 
-                                                            position: 'bottom',
-                                                            labels: { font: { weight: 'bold', size: 11 }, usePointStyle: true }
-                                                        },
-                                                        tooltip: {
-                                                            callbacks: {
-                                                                label: (context) => `${context.dataset.label}: ${context.raw}%`
-                                                            }
-                                                        }
-                                                    },
-                                                    scales: {
-                                                        y: { 
-                                                            beginAtZero: true, 
-                                                            max: 100,
-                                                            ticks: { callback: (value) => value + '%' }
-                                                        }
+
+                                        {/* Show per-sector images for activity question */}
+                                        {(() => {
+                                            const isActivity = (s.label || '').toLowerCase().includes('nivel de actividad') || (s.label || '').toLowerCase().includes('resultado general');
+                                            const questionImages = Object.entries(trendImages).filter(([k]) => k.startsWith(`${id}_`));
+                                            
+                                            if (isActivity && questionImages.length > 0) {
+                                                // Show images grouped by selected sector
+                                                const sectorsToShow = selectedSectors.length > 0 ? selectedSectors : sectorDistribution.map(s => s.nombre);
+                                                return sectorsToShow.map(sectorName => {
+                                                    const sector = sectorDistribution.find(s => s.nombre === sectorName);
+                                                    if (!sector) return null;
+                                                    const imgEntry = questionImages.find(([k]) => k === `${id}_${sector.sector_id}`);
+                                                    if (!imgEntry) return null;
+                                                    const [_, imgData] = imgEntry;
+                                                    return (
+                                                        <div key={sector.sector_id} style={{ marginBottom: '1.5rem' }}>
+                                                            <div style={{ fontWeight: '800', fontSize: '0.85rem', color: sector.color || '#1e293b', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                                                                {sector.nombre}
+                                                            </div>
+                                                            <div style={{ textAlign: 'center', cursor: 'pointer' }}>
+                                                                 <img src={getTrendImageUrl(id, sector.sector_id)} alt={`Tendencia ${sector.nombre}`}
+                                                                     style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '0.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
+                                                                     onClick={() => setEnlargedImage({ preguntaId: id, sectorId: sector.sector_id })} />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                });
+                                            } else {
+                                                // Single image mode
+                                                const imgKey = `${id}_general`;
+                                                const imgData = trendImages[imgKey];
+                                                if (imgData) {
+                                                    return (
+                                                         <div style={{ textAlign: 'center', cursor: 'pointer' }}>
+                                                             <img src={getTrendImageUrl(id, null)} alt="Tendencia"
+                                                                 style={{ maxWidth: '100%', maxHeight: '500px', borderRadius: '0.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
+                                                                 onClick={() => setEnlargedImage({ preguntaId: id, sectorId: null })} />
+                                                        </div>
+                                                    );
+                                                }
+                                            }
+                                            return null;
+                                        })()}
+
+                                        {/* Show historical chart ONLY if no uploaded image */}
+                                        {(() => {
+                                            const hasImages = Object.keys(trendImages).some(k => k.startsWith(`${id}_`));
+                                            if (!hasImages && historicalData[id]) {
+                                                return (
+                                                    <div style={{ height: '400px' }}>
+                                                        <Line data={historicalData[id]} options={{
+                                                            responsive: true, maintainAspectRatio: false,
+                                                            plugins: {
+                                                                legend: { position: 'bottom', labels: { font: { weight: 'bold', size: 11 }, usePointStyle: true } },
+                                                                tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}%` } }
+                                                            },
+                                                            scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } } }
+                                                        }} />
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
+                                        {/* Upload controls for closed surveys */}
+                                        {encuestas.find(e => e.id === selectedEncuestaId)?.estado === 0 && (
+                                            <div style={{ textAlign: 'center', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0' }}>
+                                                {(() => {
+                                                    const isActivity = (s.label || '').toLowerCase().includes('nivel de actividad') || (s.label || '').toLowerCase().includes('resultado general');
+                                                    if (isActivity && selectedSectors.length > 0) {
+                                                        // Per-sector upload buttons
+                                                        return selectedSectors.map(sectorName => {
+                                                            const sector = sectorDistribution.find(s => s.nombre === sectorName);
+                                                            if (!sector) return null;
+                                                            const hasImg = trendImages[`${id}_${sector.sector_id}`];
+                                                            return (
+                                                                <div key={sector.sector_id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center', marginBottom: '0.5rem' }}>
+                                                                    <span style={{ fontWeight: '700', fontSize: '0.8rem', color: sector.color, minWidth: '100px', textAlign: 'right' }}>{sector.nombre}</span>
+                                                                    <label className="btn btn-outline" style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                                        <Upload size={14} />
+                                                                        {uploadingTrend[id] ? '...' : (hasImg ? 'Reemplazar' : 'Subir')}
+                                                                        <input type="file" accept="image/*" hidden onChange={(e) => {
+                                                                            if (e.target.files[0]) handleUploadTrendImage(id, e.target.files[0], sector.sector_id);
+                                                                        }} />
+                                                                    </label>
+                                                                    {hasImg && (
+                                                                        <button className="btn btn-outline" style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', borderRadius: '0.5rem', color: '#ef4444', borderColor: '#ef4444' }}
+                                                                            onClick={() => handleDeleteTrendImage(id, sector.sector_id)}>
+                                                                            Eliminar
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        });
                                                     }
-                                                }} 
-                                            />
-                                        </div>
+                                                    // General upload (no sector)
+                                                    const hasImg = trendImages[`${id}_general`];
+                                                    return (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
+                                                            <label className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                                <Upload size={16} />
+                                                                {uploadingTrend[id] ? 'Subiendo...' : (hasImg ? 'Reemplazar Imagen' : 'Subir Imagen de Tendencia')}
+                                                                <input type="file" accept="image/*" hidden onChange={(e) => {
+                                                                    if (e.target.files[0]) handleUploadTrendImage(id, e.target.files[0], null);
+                                                                }} />
+                                                            </label>
+                                                            {hasImg && (
+                                                                <button className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderRadius: '0.5rem', color: '#ef4444', borderColor: '#ef4444' }}
+                                                                    onClick={() => handleDeleteTrendImage(id, null)}>
+                                                                    Eliminar
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+
+                                        {/* Show message when no data and no image */}
+                                        {(() => {
+                                            const hasImages = Object.keys(trendImages).some(k => k.startsWith(`${id}_`));
+                                            if (!hasImages && !historicalData[id]) {
+                                                return (
+                                                    <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                                                        No hay datos históricos suficientes.
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                     </div>
                                 )}
 
@@ -2243,7 +2487,7 @@ export default function Dashboard() {
                                                 <div key={rIdx} className="chart-row" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
                                                     <div style={{ padding: '0.8rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #e2e8f0', textAlign: 'center', background: '#f8fafc' }}>
                                                         <div style={{ fontWeight: '700', fontSize: '0.75rem', lineHeight: '1.2', marginBottom: '0.5rem', color: '#1e293b' }}>{row.label}</div>
-                                                        <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--primary)' }}>{displayPct}%</div>
+                                                        <div className="percentage-text" style={{ fontSize: '1.4rem', fontWeight: '900', color: '#000000' }}>{displayPct}%</div>
                                                     </div>
                                                     <div className="bar-container" style={{ padding: '0.8rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'center' }}>
                                                         {s.questionType === 'cuadricula' ? (
@@ -2256,9 +2500,9 @@ export default function Dashboard() {
                                                                 const color = colColors[idx % colColors.length];
                                                                 return (
                                                                     <div key={col} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                                                                        <div style={{ width: '80px', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={col}>{col}</div>
+                                                                        <div style={{ width: '80px', fontSize: '0.7rem', fontWeight: '800', color: '#000000', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={col}>{col}</div>
                                                                         <div style={{ height: '12px', width: `${Math.max(barRelPct * 2, 2)}%`, maxWidth: '85%', background: color, borderRadius: '2px', transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                                                                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>{barRelPct}% ({count})</span>
+                                                                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#000000' }}>{barRelPct}% ({count})</span>
                                                                     </div>
                                                                 );
                                                             })
@@ -2268,7 +2512,7 @@ export default function Dashboard() {
                                                                 return (
                                                                     <div key={bar.sector} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
                                                                         <div style={{ height: '12px', width: `${Math.max(barRelPct * 2, 2)}%`, maxWidth: '85%', background: bar.color, borderRadius: '2px', transition: 'width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
-                                                                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>{barRelPct}%</span>
+                                                                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#000000' }}>{barRelPct}%</span>
                                                                     </div>
                                                                 );
                                                             })
@@ -2586,6 +2830,20 @@ export default function Dashboard() {
                 </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Enlarged image modal */}
+      {enlargedImage && (
+        <div 
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: '2rem' }}
+          onClick={() => setEnlargedImage(null)}
+        >
+          <img 
+            src={getTrendImageUrl(enlargedImage.preguntaId, enlargedImage.sectorId)} 
+            alt="Tendencia ampliada" 
+            style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '0.5rem', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+          />
         </div>
       )}
     </div>

@@ -299,13 +299,14 @@ export const api = {
         }
         return response.json();
     },
-    getStats: async (periodoId, localidadId, seccionId, sectorId, ivaStatus) => {
+    getStats: async (periodoId, localidadId, seccionId, sectorId, ivaStatus, camaraId) => {
         let url = `${API_URL}/stats/${periodoId}`;
         const params = [];
         if (localidadId) params.push(`localidad_id=${localidadId}`);
         if (seccionId) params.push(`seccion_id=${seccionId}`);
         if (sectorId) params.push(`sector_id=${sectorId}`);
         if (ivaStatus) params.push(`iva_status=${encodeURIComponent(ivaStatus)}`);
+        if (camaraId) params.push(`camara_id=${camaraId}`);
         if (params.length) url += '?' + params.join('&');
         const response = await fetchWithCreds(url);
         if (!response.ok) {
@@ -466,6 +467,35 @@ export const api = {
             method: 'DELETE'
         });
         if (!response.ok) throw new Error((await response.json()).error || 'Error al eliminar usuario');
+        return response.json();
+    },
+
+    // Trend image
+    getTrendImage: async (encuestaId, preguntaId, sectorId) => {
+        let url = `${API_URL}/trend-image/${encuestaId}/${preguntaId}`;
+        if (sectorId) url += `?sector_id=${sectorId}`;
+        const response = await fetchWithCreds(url);
+        if (!response.ok) return null;
+        return response.json();
+    },
+    uploadTrendImage: async (encuestaId, preguntaId, file, sectorId) => {
+        const formData = new FormData();
+        formData.append('image', file);
+        if (sectorId) formData.append('sector_id', sectorId);
+        const response = await fetchWithCreds(`${API_URL}/trend-image/${encuestaId}/${preguntaId}`, {
+            method: 'POST',
+            body: formData
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Error al subir imagen');
+        return response.json();
+    },
+    deleteTrendImage: async (encuestaId, preguntaId, sectorId) => {
+        let url = `${API_URL}/trend-image/${encuestaId}/${preguntaId}`;
+        if (sectorId) url += `?sector_id=${sectorId}`;
+        const response = await fetchWithCreds(url, {
+            method: 'DELETE'
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Error al eliminar imagen');
         return response.json();
     },
 

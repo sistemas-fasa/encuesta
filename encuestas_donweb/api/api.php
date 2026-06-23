@@ -9,6 +9,33 @@ try {
     // Si la columna ya existe, fallará silenciosamente
 }
 
+// Migración: tabla para imágenes de tendencia
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tendencia_imagen (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        encuesta_id INT NOT NULL,
+        pregunta_id INT NOT NULL,
+        sector_id INT NULL,
+        imagen_path VARCHAR(500) NOT NULL,
+        fecha_subida DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (encuesta_id) REFERENCES encuesta(id) ON DELETE CASCADE,
+        FOREIGN KEY (pregunta_id) REFERENCES pregunta(id) ON DELETE CASCADE,
+        UNIQUE KEY uk_encuesta_pregunta_sector (encuesta_id, pregunta_id, sector_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // Migrate existing tables
+    try { $pdo->exec("ALTER TABLE tendencia_imagen ADD COLUMN sector_id INT NULL AFTER pregunta_id"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE tendencia_imagen DROP INDEX uk_encuesta_pregunta"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE tendencia_imagen ADD UNIQUE KEY uk_encuesta_pregunta_sector (encuesta_id, pregunta_id, sector_id)"); } catch (Exception $e) {}
+} catch (Exception $e) {
+    // Si ya existe, fallará silenciosamente
+}
+
+// Crear directorio uploads si no existe
+$uploadDir = __DIR__ . '/../uploads/trends';
+if (!is_dir($uploadDir)) {
+    mkdir($uploadDir, 0777, true);
+}
+
 if (
     (isset($_GET['debug']) && $_GET['debug'] === 'iva') || 
     (isset($_SERVER['QUERY_STRING']) && strpos($_SERVER['QUERY_STRING'], 'debug=iva') !== false) ||
@@ -164,7 +191,8 @@ $input = json_decode(file_get_contents('php://input'), true);
 // Función para obtener parámetros de la URL de una ruta dinámica (ej: /encuestas/:id)
 function match_route($pattern, $path) {
     $pattern = preg_quote($pattern, '/');
-    $pattern = str_replace('\:id', '(?P<id>[0-9]+)', $pattern);
+    // Reemplazar cualquier parámetro :nombre por un grupo con nombre
+    $pattern = preg_replace('/\\\\:([a-zA-Z_]+)/', '(?P<$1>[0-9]+)', $pattern);
     $pattern = '/^' . $pattern . '$/';
     if (preg_match($pattern, $path, $matches)) {
         return $matches;
@@ -519,6 +547,72 @@ switch ($method) {
                 send_json(['error' => $e->getMessage()], 500);
             }
         }
+
+        // TREND IMAGE - Upload
+        if ($matches = match_route('/trend-image/:encuesta_id/:pregunta_id', $requestPath)) {
+            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
+            $encuesta_id = $matches['encuesta_id'];
+            $pregunta_id = $matches['pregunta_id'];
+            $sector_id = $_POST['sector_id'] ?? null;
+            if ($sector_id === 'null' || $sector_id === '') {
+                $sector_id = null;
+            }
+
+            // Verificar encuesta cerrada
+            $stmt = $pdo->prepare("SELECT estado FROM encuesta WHERE id = ?");
+            $stmt->execute([$encuesta_id]);
+            $enc = $stmt->fetch();
+            if (!$enc) send_json(['error' => 'Encuesta no encontrada'], 404);
+            if ($enc['estado'] != 0) send_json(['error' => 'Solo se pueden subir imágenes en encuestas cerradas'], 403);
+
+            if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+                send_json(['error' => 'No se envió ninguna imagen'], 400);
+            }
+
+            $file = $_FILES['image'];
+            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            $allowed = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+            if (!in_array($ext, $allowed)) {
+                send_json(['error' => 'Formato no permitido. Use: png, jpg, gif, webp'], 400);
+            }
+
+            $suffix = $sector_id ? "_{$sector_id}" : '';
+            $filename = "trend_{$encuesta_id}_{$pregunta_id}{$suffix}.{$ext}";
+            $uploadDir = __DIR__ . '/../uploads/trends/';
+            if (!is_dir($uploadDir)) {
+                if (!mkdir($uploadDir, 0777, true)) {
+                    send_json(['error' => 'No se pudo crear el directorio de uploads. Path: ' . $uploadDir], 500);
+                }
+            }
+            if (!is_writable($uploadDir)) {
+                send_json(['error' => 'El directorio de uploads no tiene permisos de escritura. Path: ' . $uploadDir], 500);
+            }
+            $destPath = $uploadDir . $filename;
+
+            if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+                $phpErr = error_get_last();
+                send_json([
+                    'error' => 'Error al guardar la imagen en el servidor',
+                    'detail' => [
+                        'upload_dir' => $uploadDir,
+                        'dest_path' => $destPath,
+                        'tmp_name' => $file['tmp_name'],
+                        'tmp_exists' => file_exists($file['tmp_name']),
+                        'dir_exists' => is_dir($uploadDir),
+                        'dir_writable' => is_writable($uploadDir),
+                        'php_error' => $phpErr
+                    ]
+                ], 500);
+            }
+
+            $imagenPath = '/uploads/trends/' . $filename;
+
+            // Upsert con sector_id
+            $stmt = $pdo->prepare("INSERT INTO tendencia_imagen (encuesta_id, pregunta_id, sector_id, imagen_path, fecha_subida) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE imagen_path = VALUES(imagen_path), fecha_subida = NOW()");
+            $stmt->execute([$encuesta_id, $pregunta_id, $sector_id, $imagenPath]);
+
+            send_json(['success' => true, 'imagen_path' => $imagenPath, 'sector_id' => $sector_id]);
+        }
         break;
 
     case 'GET':
@@ -713,7 +807,8 @@ switch ($method) {
             $globalIvaPreguntaId = null;
             $sessionJoin = "";
             $sessionWhere = "";
-            $sessionParams = [];
+            $sessionJoinParams = [];
+            $sessionWhereParams = [];
             
             if ($iva_status) {
                 $stmtIvaQFallback = $pdo->prepare("
@@ -729,24 +824,81 @@ switch ($method) {
 
                 if ($globalIvaPreguntaId) {
                     $sessionJoin = " JOIN respuesta r_iva ON r_iva.encuesta_periodo_id = r.encuesta_periodo_id 
-                                     AND r_iva.fecha_respuesta = r.fecha_respuesta 
+                                     AND ABS(TIMESTAMPDIFF(SECOND, r_iva.fecha_respuesta, r.fecha_respuesta)) <= 20 
                                      AND r_iva.localidad_id = r.localidad_id 
                                      AND r_iva.pregunta_id = ?
                                      LEFT JOIN opcion o_iva ON r_iva.opcion_id = o_iva.id ";
                     $sessionWhere = " AND COALESCE(o_iva.texto_opcion, r_iva.valor_texto) LIKE ? ";
-                    $sessionParams = [$globalIvaPreguntaId, '%' . $iva_status . '%'];
+                    $sessionJoinParams[] = $globalIvaPreguntaId;
+                    $sessionWhereParams[] = '%' . $iva_status . '%';
+                }
+            }
+
+            // --- GLOBAL CAMARA FILTER LOGIC ---
+            $camara_id = $_GET['camara_id'] ?? null;
+            $globalCamaraPreguntaId = null;
+            $camaraDebug = [];
+            
+            if ($camara_id) {
+                $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE tipo = 'selector_camara' LIMIT 1");
+                $stmtCamaraQ->execute();
+                $camaraQ = $stmtCamaraQ->fetch();
+                if (!$camaraQ) {
+                    $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE (texto_pregunta LIKE '%Cámara%' OR texto_pregunta LIKE '%Camara%' OR texto_pregunta LIKE '%Asociación%' OR texto_pregunta LIKE '%pertenece%') AND tipo = 'opcion_unica' ORDER BY id LIMIT 1");
+                    $stmtCamaraQ->execute();
+                    $camaraQ = $stmtCamaraQ->fetch();
+                }
+                $globalCamaraPreguntaId = $camaraQ ? $camaraQ['id'] : null;
+
+                if ($globalCamaraPreguntaId) {
+                    $sessionJoin .= " JOIN respuesta r_camara ON r_camara.encuesta_periodo_id = r.encuesta_periodo_id 
+                                     AND ABS(TIMESTAMPDIFF(SECOND, r_camara.fecha_respuesta, r.fecha_respuesta)) <= 20 
+                                     AND r_camara.localidad_id = r.localidad_id 
+                                     AND r_camara.pregunta_id = ? 
+                                     LEFT JOIN opcion o_camara ON r_camara.opcion_id = o_camara.id ";
+                    
+                    // Match either by numerical ID comparison OR matching words of the camera name
+                    $sessionWhere .= " AND (
+                                        CAST(r_camara.valor_numerico AS UNSIGNED) = ?
+                                        OR CAST(r_camara.valor_texto AS UNSIGNED) = ?
+                                        OR o_camara.valor = ?
+                                        OR r_camara.opcion_id = ?
+                                        OR LOWER(TRIM(o_camara.texto_opcion)) = (SELECT LOWER(TRIM(nombre)) FROM camara WHERE id = ?)
+                                        OR LOWER(TRIM(r_camara.valor_texto)) = (SELECT LOWER(TRIM(nombre)) FROM camara WHERE id = ?)
+                                        OR LOWER(TRIM(o_camara.texto_opcion)) LIKE (SELECT CONCAT('%', LOWER(TRIM(nombre)), '%') FROM camara WHERE id = ?)
+                                        OR (SELECT LOWER(TRIM(nombre)) FROM camara WHERE id = ?) LIKE CONCAT('%', LOWER(TRIM(o_camara.texto_opcion)), '%')
+                                      ) ";
+                    $sessionJoinParams[] = $globalCamaraPreguntaId;
+                    $sessionWhereParams = array_merge($sessionWhereParams, [
+                        $camara_id, 
+                        $camara_id, 
+                        $camara_id,
+                        $camara_id,
+                        $camara_id,
+                        $camara_id,
+                        $camara_id,
+                        $camara_id
+                    ]);
+                    
+                    $camaraDebug = [
+                        'camara_id' => $camara_id,
+                        'pregunta_id' => $globalCamaraPreguntaId
+                    ];
                 }
             }
 
             // 1. Total Participantes
             $sqlTotal = "SELECT COUNT(*) as total FROM (SELECT DISTINCT r.fecha_respuesta, r.localidad_id FROM respuesta r $sessionJoin WHERE r.encuesta_periodo_id = ?";
-            $paramsTotal = array_merge([$periodo_id], $sessionParams);
+            $paramsTotal = array_merge($sessionJoinParams, [$periodo_id]);
             if ($localidad_id) { $sqlTotal .= " AND r.localidad_id = ?"; $paramsTotal[] = $localidad_id; }
             $sqlTotal .= $sessionWhere . ") as sub";
+            $paramsTotal = array_merge($paramsTotal, $sessionWhereParams);
             $stmt = $pdo->prepare($sqlTotal);
             $stmt->execute($paramsTotal);
             $total = $stmt->fetch()['total'];
-            $total = 212;
+            if (!$localidad_id && !$iva_status && !$camara_id) {
+                $total = 212; // Keep legacy override for general display
+            }
             
             // 2. Query Statistics
             $sqlStats = "SELECT r.pregunta_id, p.texto_pregunta, p.tipo, p.seccion_id, 
@@ -761,13 +913,14 @@ switch ($method) {
                         LEFT JOIN sector s ON s.id = COALESCE(r.sector_id, sec.sector_id)
                         WHERE r.encuesta_periodo_id = ?
                           AND (p.tipo NOT IN ('numero', 'numerico', 'rango', 'escala') OR (r.valor_numerico IS NOT NULL AND r.valor_numerico != 0))";
-            $paramsStats = array_merge([$periodo_id], $sessionParams);
+            $paramsStats = array_merge($sessionJoinParams, [$periodo_id]);
             
             if ($localidad_id) { $sqlStats .= " AND r.localidad_id = ?"; $paramsStats[] = $localidad_id; }
             if ($seccion_id) { $sqlStats .= " AND p.seccion_id = ?"; $paramsStats[] = $seccion_id; }
             if ($sector_id) { $sqlStats .= " AND r.sector_id = ?"; $paramsStats[] = $sector_id; }
             
             $sqlStats .= $sessionWhere . " GROUP BY r.pregunta_id, p.texto_pregunta, p.tipo, p.seccion_id, o.id, o.texto_opcion, r.valor_texto, COALESCE(r.sector_id, sec.sector_id), s.nombre, s.color";
+            $paramsStats = array_merge($paramsStats, $sessionWhereParams);
             $stmt = $pdo->prepare($sqlStats);
             $stmt->execute($paramsStats);
             $answers = $stmt->fetchAll();
@@ -778,9 +931,10 @@ switch ($method) {
                 $sessionJoin
                 JOIN sector s ON r.sector_id = s.id
                 WHERE r.encuesta_periodo_id = ? AND r.sector_id IS NOT NULL";
-            $paramsSec = array_merge([$periodo_id], $sessionParams);
+            $paramsSec = array_merge($sessionJoinParams, [$periodo_id]);
             if ($localidad_id) { $sqlSec .= " AND r.localidad_id = ?"; $paramsSec[] = $localidad_id; }
             $sqlSec .= $sessionWhere . " GROUP BY r.sector_id, s.nombre, s.color ORDER BY s.orden";
+            $paramsSec = array_merge($paramsSec, $sessionWhereParams);
             
             $stmtSec = $pdo->prepare($sqlSec);
             $stmtSec->execute($paramsSec);
@@ -793,9 +947,10 @@ switch ($method) {
                        JOIN localidad l ON r.localidad_id = l.id
                        LEFT JOIN sector s ON r.sector_id = s.id
                        WHERE r.encuesta_periodo_id = ?";
-            $paramsLoc = array_merge([$periodo_id], $sessionParams);
+            $paramsLoc = array_merge($sessionJoinParams, [$periodo_id]);
             if ($sector_id) { $sqlLoc .= " AND r.sector_id = ?"; $paramsLoc[] = $sector_id; }
             $sqlLoc .= $sessionWhere . " GROUP BY l.id, l.nombre, s.nombre ORDER BY count DESC";
+            $paramsLoc = array_merge($paramsLoc, $sessionWhereParams);
             $stmtLoc = $pdo->prepare($sqlLoc);
             $stmtLoc->execute($paramsLoc);
             $localidadStats = $stmtLoc->fetchAll();
@@ -970,6 +1125,11 @@ switch ($method) {
             $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE tipo = 'selector_camara' LIMIT 1");
             $stmtCamaraQ->execute();
             $camaraQ = $stmtCamaraQ->fetch();
+            if (!$camaraQ) {
+                $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE (texto_pregunta LIKE '%Cámara%' OR texto_pregunta LIKE '%Camara%' OR texto_pregunta LIKE '%Asociación%' OR texto_pregunta LIKE '%pertenece%') AND tipo = 'opcion_unica' ORDER BY id LIMIT 1");
+                $stmtCamaraQ->execute();
+                $camaraQ = $stmtCamaraQ->fetch();
+            }
             if ($camaraQ) {
                 $camaraPreguntaId = $camaraQ['id'];
                 $sqlCamara = "SELECT 
@@ -981,15 +1141,22 @@ switch ($method) {
                                 COUNT(DISTINCT r.fecha_respuesta) as count
                               FROM respuesta r
                               $sessionJoin
-                              JOIN camara c ON CAST(r.valor_numerico AS UNSIGNED) = c.id
+                              JOIN camara c ON (
+                                CAST(r.valor_numerico AS UNSIGNED) = c.id
+                                OR CAST(r.valor_texto AS UNSIGNED) = c.id
+                                OR (
+                                  SELECT o_c.texto_opcion FROM opcion o_c WHERE r.opcion_id = o_c.id
+                                ) = c.nombre
+                              )
                               LEFT JOIN sector s ON r.sector_id = s.id
                               WHERE r.encuesta_periodo_id = ?
                                 AND r.pregunta_id = ?
-                                AND r.valor_numerico IS NOT NULL";
-                $paramsCamara = array_merge([$periodo_id, $camaraPreguntaId], $sessionParams);
+                                AND (r.valor_numerico IS NOT NULL OR r.valor_texto IS NOT NULL OR r.opcion_id IS NOT NULL)";
+                $paramsCamara = array_merge($sessionJoinParams, [$periodo_id, $camaraPreguntaId]);
                 if ($localidad_id) { $sqlCamara .= " AND r.localidad_id = ?"; $paramsCamara[] = $localidad_id; }
                 if ($sector_id) { $sqlCamara .= " AND r.sector_id = ?"; $paramsCamara[] = $sector_id; }
                 $sqlCamara .= $sessionWhere . " GROUP BY c.id, c.nombre, s.id, s.nombre, s.color ORDER BY count DESC, s.orden";
+                $paramsCamara = array_merge($paramsCamara, $sessionWhereParams);
                 
                 $stmtCamara = $pdo->prepare($sqlCamara);
                 $stmtCamara->execute($paramsCamara);
@@ -1003,7 +1170,8 @@ switch ($method) {
                 'localidadStats'     => $localidadStats,
                 'camaraStats'        => $camaraStats,
                 'ivaStats'           => $ivaStats,
-                '_debug_iva'         => $debugInfo
+                '_debug_iva'         => $debugInfo,
+                '_debug_camara'      => $camaraDebug
             ]);
         }
 
@@ -1044,6 +1212,42 @@ switch ($method) {
             send_json($stmt->fetchAll());
         }
 
+        // TREND IMAGE - GET info (or serve raw file with ?raw=1)
+        if ($matches = match_route('/trend-image/:encuesta_id/:pregunta_id', $requestPath)) {
+            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
+            $encuesta_id = $matches['encuesta_id'];
+            $pregunta_id = $matches['pregunta_id'];
+            $sector_id = $_GET['sector_id'] ?? null;
+
+            if ($sector_id && $sector_id !== 'null' && $sector_id !== '') {
+                $stmt = $pdo->prepare("SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id = ?");
+                $stmt->execute([$encuesta_id, $pregunta_id, $sector_id]);
+                $row = $stmt->fetch();
+            } else {
+                $stmt = $pdo->prepare("SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id IS NULL");
+                $stmt->execute([$encuesta_id, $pregunta_id]);
+                $row = $stmt->fetch();
+            }
+
+            if (!$row) send_json(null);
+
+            if (isset($_GET['raw']) && $_GET['raw'] === '1') {
+                $filePath = __DIR__ . '/../' . $row['imagen_path'];
+                if (!file_exists($filePath)) {
+                    header('HTTP/1.1 404 Not Found');
+                    exit;
+                }
+                $ext = strtolower(pathinfo($row['imagen_path'], PATHINFO_EXTENSION));
+                $mimeMap = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp'];
+                header('Content-Type: ' . ($mimeMap[$ext] ?? 'application/octet-stream'));
+                header('Cache-Control: public, max-age=31536000');
+                readfile($filePath);
+                exit;
+            }
+
+            send_json($row);
+        }
+
         // STATS PIVOT (Constructor Dinámico de Gráficos Cruzados)
         if ($matches = match_route('/stats-pivot/:id', $requestPath)) {
             if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
@@ -1051,6 +1255,7 @@ switch ($method) {
             $base_pregunta_id = $_GET['base_pregunta_id'] ?? null;
             $cross_pregunta_id = $_GET['cross_pregunta_id'] ?? null;
             $localidad_id = $_GET['localidad_id'] ?? null;
+            $sector_nombre = $_GET['sector_nombre'] ?? null;
 
             if (!$base_pregunta_id || !$cross_pregunta_id) {
                 send_json(['error' => 'Faltan parámetros de cruce (base_pregunta_id, cross_pregunta_id)'], 400);
@@ -1093,8 +1298,8 @@ switch ($method) {
                                 NULL as cross_color,
                                 COUNT(DISTINCT r_base.id) as cantidad,
                                 AVG(r_base.valor_numerico) as promedio_base,
-                                COALESCE(r_base.sector_id, sec.sector_id) as sector_id,
-                                s.nombre as sector_nombre
+                                COALESCE(s.id, rubro_sector.sector_id) as sector_id,
+                                COALESCE(s.nombre, rubro_sector.sector_nombre) as sector_nombre
                             FROM respuesta r_base
                             JOIN pregunta p_base ON r_base.pregunta_id = p_base.id
                             LEFT JOIN opcion opt_base ON r_base.opcion_id = opt_base.id
@@ -1105,6 +1310,21 @@ switch ($method) {
                             LEFT JOIN opcion opt_cross ON r_cross.opcion_id = opt_cross.id
                             LEFT JOIN seccion sec ON p_base.seccion_id = sec.id
                             LEFT JOIN sector s ON s.id = COALESCE(r_base.sector_id, sec.sector_id)
+                            LEFT JOIN (
+                                SELECT r_sub.encuesta_periodo_id, r_sub.localidad_id, r_sub.fecha_respuesta,
+                                       s_sub.id as sector_id, s_sub.nombre as sector_nombre
+                                FROM respuesta r_sub
+                                JOIN opcion o_sub ON r_sub.opcion_id = o_sub.id AND o_sub.siguiente_seccion_id IS NOT NULL
+                                JOIN sector s_sub ON 
+                                    LOWER(TRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                                        o_sub.texto_opcion, 'Á', 'A'), 'É', 'E'), 'Í', 'I'), 'Ó', 'O'), 'Ú', 'U')))
+                                    =
+                                    LOWER(TRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                                        s_sub.nombre, 'Á', 'A'), 'É', 'E'), 'Í', 'I'), 'Ó', 'O'), 'Ú', 'U')))
+                                GROUP BY r_sub.encuesta_periodo_id, r_sub.localidad_id, r_sub.fecha_respuesta, s_sub.id, s_sub.nombre
+                            ) rubro_sector ON rubro_sector.encuesta_periodo_id = r_base.encuesta_periodo_id
+                                AND rubro_sector.localidad_id = r_base.localidad_id
+                                AND rubro_sector.fecha_respuesta = r_base.fecha_respuesta
                             WHERE r_base.encuesta_periodo_id = ?
                               AND p_base.id = ?
                               AND p_cross.id = ?
@@ -1117,7 +1337,12 @@ switch ($method) {
                     $paramsPivot[] = $localidad_id;
                 }
 
-                $sqlPivot .= " GROUP BY base_categoria, cross_categoria, sector_id, sector_nombre ORDER BY base_categoria, cross_categoria";
+                if ($sector_nombre) {
+                    $sqlPivot .= " AND COALESCE(s.nombre, rubro_sector.sector_nombre) = ?";
+                    $paramsPivot[] = $sector_nombre;
+                }
+
+                $sqlPivot .= " GROUP BY base_categoria, cross_categoria, COALESCE(s.id, rubro_sector.sector_id), COALESCE(s.nombre, rubro_sector.sector_nombre) ORDER BY base_categoria, cross_categoria";
             }
 
             $stmtPivot = $pdo->prepare($sqlPivot);
@@ -1502,6 +1727,34 @@ switch ($method) {
                 $pdo->commit();
                 send_json(['message' => 'Eliminado']);
             } catch (Exception $e) { $pdo->rollBack(); send_json(['error' => $e->getMessage()], 500); }
+        }
+
+        // TREND IMAGE - DELETE
+        if ($matches = match_route('/trend-image/:encuesta_id/:pregunta_id', $requestPath)) {
+            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
+            $encuesta_id = $matches['encuesta_id'];
+            $pregunta_id = $matches['pregunta_id'];
+            $sector_id = $_GET['sector_id'] ?? null;
+            if ($sector_id) {
+                $stmt = $pdo->prepare("SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id = ?");
+                $stmt->execute([$encuesta_id, $pregunta_id, $sector_id]);
+            } else {
+                $stmt = $pdo->prepare("SELECT * FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ?");
+                $stmt->execute([$encuesta_id, $pregunta_id]);
+            }
+            $rows = $stmt->fetchAll();
+            foreach ($rows as $row) {
+                $filePath = __DIR__ . '/../' . $row['imagen_path'];
+                if (file_exists($filePath)) unlink($filePath);
+            }
+            if ($sector_id) {
+                $stmt = $pdo->prepare("DELETE FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ? AND sector_id = ?");
+                $stmt->execute([$encuesta_id, $pregunta_id, $sector_id]);
+            } else {
+                $stmt = $pdo->prepare("DELETE FROM tendencia_imagen WHERE encuesta_id = ? AND pregunta_id = ?");
+                $stmt->execute([$encuesta_id, $pregunta_id]);
+            }
+            send_json(['success' => true]);
         }
         break;
 }
