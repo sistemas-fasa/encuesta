@@ -486,17 +486,41 @@ switch ($method) {
                      }
                  }
                 
-                // 4. Duplicate QUESTIONS
-                $stmt = $pdo->prepare("SELECT * FROM pregunta WHERE encuesta_id = ?");
+                // 4. Duplicate QUESTIONS (using encuesta_pregunta pivot table)
+                $stmt = $pdo->prepare("
+                    SELECT p.*, ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
+                    FROM pregunta p
+                    JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                    WHERE ep.encuesta_id = ?
+                ");
                 $stmt->execute([$surveyId]);
                 $questions = $stmt->fetchAll();
                 $questionMap = [];
                 
                 $insertQ = $pdo->prepare("INSERT INTO pregunta (texto_pregunta, tipo, camara_id, encuesta_id, orden, seccion_id, estilo) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $insertEP = $pdo->prepare("INSERT INTO encuesta_pregunta (encuesta_id, pregunta_id, seccion_id, orden) VALUES (?, ?, ?, ?)");
+                
                 foreach ($questions as $q) {
-                    $newSecId = $q['seccion_id'] ? ($sectionMap[$q['seccion_id']] ?? null) : null;
-                    $insertQ->execute([$q['texto_pregunta'], $q['tipo'], $q['camara_id'], $newSurveyId, $q['orden'], $newSecId, $q['estilo'] ?? 'auto']);
-                    $questionMap[$q['id']] = $pdo->lastInsertId();
+                    $newSecId = $q['ep_seccion_id'] ? ($sectionMap[$q['ep_seccion_id']] ?? null) : null;
+                    $insertQ->execute([
+                        $q['texto_pregunta'],
+                        $q['tipo'],
+                        $q['camara_id'],
+                        $newSurveyId,
+                        $q['ep_orden'],
+                        $newSecId,
+                        $q['estilo'] ?? 'auto'
+                    ]);
+                    $newQId = $pdo->lastInsertId();
+                    $questionMap[$q['id']] = $newQId;
+                    
+                    // Insert into pivot table
+                    $insertEP->execute([
+                        $newSurveyId,
+                        $newQId,
+                        $newSecId,
+                        $q['ep_orden']
+                    ]);
                 }
                 
                 // 5. Duplicate OPTIONS
