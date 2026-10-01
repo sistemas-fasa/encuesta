@@ -116,6 +116,7 @@ $options = [
 
 try {
      $pdo = new PDO($dsn, $user, $pass, $options);
+     $pdo->exec("SET SESSION group_concat_max_len = 100000;");
 } catch (\PDOException $e) {
      survey_log_error('db_connection', $e);
      header('Content-Type: application/json', true, 500);
