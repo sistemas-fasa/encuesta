@@ -254,7 +254,20 @@ export default function SurveyForm() {
     try {
       if (!currentSection || currentIndex === -1) return -1;
 
-      // 1. Check for explicit jumps in answers (IMMEDIATE JUMP)
+      // 1. Are there any explicitly activated conditional sections that we HAVEN'T visited yet?
+      // Processing them strictly by their order in the survey guarantees NO activated branch is skipped.
+      const firstUnvisitedTargetIdx = secciones.findIndex((s, idx) => 
+        !history.includes(idx) && 
+        idx !== currentIndex &&
+        activeJumpTargetIds.includes(String(s.id))
+      );
+      
+      if (firstUnvisitedTargetIdx !== -1) {
+        return firstUnvisitedTargetIdx;
+      }
+
+      // 2. Check for explicit jumps in answers (IMMEDIATE JUMP)
+      // Only executes if there are NO pending activated conditional targets.
       let nextSectionId = null;
       currentPreguntas.forEach(p => {
         const answer = respuestas[p.id];
@@ -270,17 +283,6 @@ export default function SurveyForm() {
         if (nextIdx !== -1 && nextIdx !== currentIndex && !history.includes(nextIdx)) {
           return nextIdx;
         }
-      }
-
-      // 2. Are there any explicitly activated conditional sections that we HAVEN'T visited yet?
-      const firstUnvisitedTargetIdx = secciones.findIndex((s, idx) => 
-        !history.includes(idx) && 
-        idx !== currentIndex &&
-        activeJumpTargetIds.includes(String(s.id))
-      );
-      
-      if (firstUnvisitedTargetIdx !== -1) {
-        return firstUnvisitedTargetIdx;
       }
 
       // 3. PRIORIDAD 0: Si la sección actual tiene "siguiente sección" configurada directamente
