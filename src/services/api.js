@@ -499,6 +499,36 @@ export const api = {
         return response.json();
     },
 
+    // Informes Mensuales
+    checkInformeAnterior: async () => {
+        const response = await fetch(`${API_URL}/informe-anterior`);
+        if (!response.ok) return { disponible: false, mes: '' };
+        return response.json();
+    },
+    getInformes: async () => {
+        const response = await fetchWithCreds(`${API_URL}/informes`);
+        if (!response.ok) throw new Error('Error al cargar informes');
+        return response.json();
+    },
+    uploadInforme: async (mes, file) => {
+        const formData = new FormData();
+        formData.append('mes', mes);
+        formData.append('archivo_pdf', file);
+        const response = await fetchWithCreds(`${API_URL}/informes`, {
+            method: 'POST',
+            body: formData
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Error al subir informe');
+        return response.json();
+    },
+    deleteInforme: async (filename) => {
+        const response = await fetchWithCreds(`${API_URL}/informes/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Error al eliminar informe');
+        return response.json();
+    },
+
     // Version check for cache busting
     getVersion: async () => {
         const versionUrl = isProduction ? '/encuestas/api/version.php' : 'http://localhost:3001/api/version';

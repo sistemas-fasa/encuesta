@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Plus, Trash2, Edit3, Save, X, Settings, ListPlus, Type, HelpCircle, Database, Building, Copy, Calendar, ClipboardList, Eye, EyeOff, Share2, Link2, BookOpen, UploadCloud, ArrowUp, ArrowDown, Folder, Users, UserPlus } from 'lucide-react';
+import { Plus, Trash2, Edit3, Save, X, Settings, ListPlus, Type, HelpCircle, Database, Building, Copy, Calendar, ClipboardList, Eye, EyeOff, Share2, Link2, BookOpen, UploadCloud, ArrowUp, ArrowDown, Folder, Users, UserPlus, FileText } from 'lucide-react';
 import Swal from 'sweetalert2';
 import ImportManager from '../components/ImportManager';
 import SorteosManager from '../components/SorteosManager';
+import InformesManager from '../components/InformesManager';
 
 export default function Admin() {
   const [encuestas, setEncuestas] = useState([]);
@@ -1118,9 +1119,18 @@ export default function Admin() {
                   >
                     🎉 Sorteos
                   </button>
+                  <button
+                    className={`btn ${tab === 'informes' ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ borderColor: '#0ea5e9', color: tab === 'informes' ? 'white' : '#0ea5e9', background: tab === 'informes' ? '#0ea5e9' : 'transparent' }}
+                    onClick={() => setTab('informes')}
+                  >
+                    <FileText size={18} /> Informes PDF
+                  </button>
                 </div>
 
                 {tab === 'sorteos' && <SorteosManager camaras={auxData.camaras} />}
+
+                {tab === 'informes' && <InformesManager />}
 
                 {tab === 'usuarios' && (
                   <div className="animate-fade-in">

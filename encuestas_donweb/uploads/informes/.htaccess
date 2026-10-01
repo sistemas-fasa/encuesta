@@ -1,0 +1,5 @@
+# Allow direct access to PDF files in this directory
+Options -Indexes
+<FilesMatch "\.pdf$">
+  Allow from all
+</FilesMatch>

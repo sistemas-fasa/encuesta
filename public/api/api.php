@@ -36,6 +36,19 @@ if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0777, true);
 }
 
+// Migración: tabla de informes_mensuales
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `informes_mensuales` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `mes` varchar(7) NOT NULL COMMENT 'Formato YYYY-MM',
+      `archivo_pdf` varchar(255) NOT NULL,
+      `fecha_carga` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `activo` tinyint(1) NOT NULL DEFAULT '1',
+      PRIMARY KEY (`id`),
+      UNIQUE KEY `mes_unico` (`mes`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {}
+
 if (
     (isset($_GET['debug']) && $_GET['debug'] === 'iva') || 
     (isset($_SERVER['QUERY_STRING']) && strpos($_SERVER['QUERY_STRING'], 'debug=iva') !== false) ||
@@ -415,6 +428,19 @@ switch ($method) {
             send_json(['id' => $pdo->lastInsertId(), 'nombre' => $input['nombre']]);
         }
 
+        // CREATE CAMARA
+        if ($requestPath === '/camaras') {
+            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
+            if (empty($input['nombre'])) send_json(['error' => 'El nombre es obligatorio'], 400);
+            $sigla = null;
+            if (preg_match('/^\(([A-Za-z0-9_-]+)\)/', trim($input['nombre']), $m)) {
+                $sigla = $m[1];
+            }
+            $stmt = $pdo->prepare("INSERT INTO camara (nombre, sigla) VALUES (?, ?)");
+            $stmt->execute([$input['nombre'], $sigla]);
+            send_json(['id' => $pdo->lastInsertId(), 'nombre' => $input['nombre'], 'sigla' => $sigla]);
+        }
+
         
         // CREATE QUESTION (legacy)
         // CREATE QUESTION
@@ -648,6 +674,21 @@ switch ($method) {
             send_json($stmt->fetchAll());
         }
 
+        // INFORME ANTERIOR
+        if ($requestPath === '/informe-anterior') {
+            $mes_anterior = date('Y-m', strtotime('first day of last month'));
+            $stmt = $pdo->prepare("SELECT archivo_pdf FROM informes_mensuales WHERE mes = ? AND activo = 1 LIMIT 1");
+            $stmt->execute([$mes_anterior]);
+            $fila = $stmt->fetch();
+            
+            if ($fila) {
+                // Ensure absolute path from the root or relative to the frontend domain
+                send_json(['disponible' => true, 'mes' => $mes_anterior, 'url' => '/encuestas/uploads/informes/' . $fila['archivo_pdf']]);
+            } else {
+                send_json(['disponible' => false, 'mes' => $mes_anterior]);
+            }
+        }
+
 
         // SORTEOS
         if ($requestPath === '/sorteos') {
@@ -826,6 +867,12 @@ switch ($method) {
             $seccion_id = $_GET['seccion_id'] ?? null;
             $sector_id = $_GET['sector_id'] ?? null;
             
+            // Obtener la encuesta_id asociada a este período
+            $stmtPeriodoInfo = $pdo->prepare("SELECT encuesta_id FROM encuesta_periodo WHERE id = ?");
+            $stmtPeriodoInfo->execute([$periodo_id]);
+            $periodInfo = $stmtPeriodoInfo->fetch();
+            $encuesta_id = $periodInfo ? $periodInfo['encuesta_id'] : null;
+
             // --- GLOBAL IVA FILTER LOGIC ---
             $iva_status = $_GET['iva_status'] ?? null;
             $globalIvaPreguntaId = null;
@@ -837,12 +884,14 @@ switch ($method) {
             if ($iva_status) {
                 $stmtIvaQFallback = $pdo->prepare("
                     SELECT p.id FROM pregunta p
+                    JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
                     JOIN respuesta r ON r.pregunta_id = p.id
-                    WHERE (p.texto_pregunta LIKE '%IVA%' OR p.texto_pregunta LIKE '%I.V.A%' OR p.texto_pregunta LIKE '%iva%' OR p.tipo = 'selector_iva')
+                    WHERE ep.encuesta_id = ?
+                      AND (p.texto_pregunta LIKE '%IVA%' OR p.texto_pregunta LIKE '%I.V.A%' OR p.texto_pregunta LIKE '%iva%' OR p.tipo = 'selector_iva')
                       AND r.encuesta_periodo_id = ?
                     GROUP BY p.id ORDER BY COUNT(r.id) DESC LIMIT 1
                 ");
-                $stmtIvaQFallback->execute([$periodo_id]);
+                $stmtIvaQFallback->execute([$encuesta_id, $periodo_id]);
                 $ivaQ = $stmtIvaQFallback->fetch();
                 $globalIvaPreguntaId = $ivaQ ? $ivaQ['id'] : null;
 
@@ -864,12 +913,24 @@ switch ($method) {
             $camaraDebug = [];
             
             if ($camara_id) {
-                $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE tipo = 'selector_camara' LIMIT 1");
-                $stmtCamaraQ->execute();
+                $stmtCamaraQ = $pdo->prepare("
+                    SELECT p.id FROM pregunta p
+                    JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                    WHERE ep.encuesta_id = ? AND p.tipo = 'selector_camara' 
+                    LIMIT 1
+                ");
+                $stmtCamaraQ->execute([$encuesta_id]);
                 $camaraQ = $stmtCamaraQ->fetch();
                 if (!$camaraQ) {
-                    $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE (texto_pregunta LIKE '%Cámara%' OR texto_pregunta LIKE '%Camara%' OR texto_pregunta LIKE '%Asociación%' OR texto_pregunta LIKE '%pertenece%') AND tipo = 'opcion_unica' ORDER BY id LIMIT 1");
-                    $stmtCamaraQ->execute();
+                    $stmtCamaraQ = $pdo->prepare("
+                        SELECT p.id FROM pregunta p
+                        JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                        WHERE ep.encuesta_id = ? 
+                          AND (p.texto_pregunta LIKE '%Cámara%' OR p.texto_pregunta LIKE '%Camara%' OR p.texto_pregunta LIKE '%Asociación%' OR p.texto_pregunta LIKE '%pertenece%') 
+                          AND p.tipo = 'opcion_unica' 
+                        ORDER BY p.id LIMIT 1
+                    ");
+                    $stmtCamaraQ->execute([$encuesta_id]);
                     $camaraQ = $stmtCamaraQ->fetch();
                 }
                 $globalCamaraPreguntaId = $camaraQ ? $camaraQ['id'] : null;
@@ -920,9 +981,6 @@ switch ($method) {
             $stmt = $pdo->prepare($sqlTotal);
             $stmt->execute($paramsTotal);
             $total = $stmt->fetch()['total'];
-            if (!$localidad_id && !$iva_status && !$camara_id) {
-                $total = 212; // Keep legacy override for general display
-            }
             
             // 2. Query Statistics
             $sqlStats = "SELECT r.pregunta_id, p.texto_pregunta, p.tipo, p.seccion_id, 
@@ -985,18 +1043,21 @@ switch ($method) {
 
             // --- ENFOQUE A: Preguntas numéricas de personal (producción) ---
             $stmtQMono = $pdo->prepare("
-                SELECT id FROM pregunta 
-                WHERE texto_pregunta LIKE '%Monotribut%'
+                SELECT p.id FROM pregunta p 
+                JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                WHERE ep.encuesta_id = ? AND p.texto_pregunta LIKE '%Monotribut%'
             ");
-            $stmtQMono->execute();
+            $stmtQMono->execute([$encuesta_id]);
             $monoIds = array_column($stmtQMono->fetchAll(), 'id');
 
             $stmtQRI = $pdo->prepare("
-                SELECT id FROM pregunta 
-                WHERE (texto_pregunta LIKE '%Inscripto%' OR texto_pregunta LIKE '%Resp. Inscripto%')
-                  AND texto_pregunta NOT LIKE '%Monotribut%'
+                SELECT p.id FROM pregunta p 
+                JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                WHERE ep.encuesta_id = ? 
+                  AND (p.texto_pregunta LIKE '%Inscripto%' OR p.texto_pregunta LIKE '%Resp. Inscripto%')
+                  AND p.texto_pregunta NOT LIKE '%Monotribut%'
             ");
-            $stmtQRI->execute();
+            $stmtQRI->execute([$encuesta_id]);
             $riIds = array_column($stmtQRI->fetchAll(), 'id');
 
             $numericSuccess = false;
@@ -1062,14 +1123,16 @@ switch ($method) {
                 // --- ENFOQUE B: Pregunta categórica de IVA (fallback) ---
                 $stmtIvaQ = $pdo->prepare("
                     SELECT p.id FROM pregunta p 
+                    JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
                     LEFT JOIN opcion o ON o.pregunta_id = p.id 
-                    WHERE o.texto_opcion LIKE '%Monotribut%' 
-                       OR o.texto_opcion LIKE '%Inscripto%' 
-                       OR o.texto_opcion LIKE '%Responsable%'
-                       OR p.tipo = 'selector_iva'
+                    WHERE ep.encuesta_id = ?
+                      AND (o.texto_opcion LIKE '%Monotribut%' 
+                           OR o.texto_opcion LIKE '%Inscripto%' 
+                           OR o.texto_opcion LIKE '%Responsable%'
+                           OR p.tipo = 'selector_iva')
                     LIMIT 1
                 ");
-                $stmtIvaQ->execute();
+                $stmtIvaQ->execute([$encuesta_id]);
                 $ivaQ = $stmtIvaQ->fetch();
                 
                 if (!$ivaQ) {
@@ -1077,25 +1140,29 @@ switch ($method) {
                     $stmtIvaQFallback = $pdo->prepare("
                         SELECT p.id 
                         FROM pregunta p
+                        JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
                         JOIN respuesta r ON r.pregunta_id = p.id
-                        WHERE (p.texto_pregunta LIKE '%IVA%' OR p.texto_pregunta LIKE '%I.V.A%' OR p.texto_pregunta LIKE '%iva%')
+                        WHERE ep.encuesta_id = ?
+                          AND (p.texto_pregunta LIKE '%IVA%' OR p.texto_pregunta LIKE '%I.V.A%' OR p.texto_pregunta LIKE '%iva%')
                           AND r.encuesta_periodo_id = ?
                         GROUP BY p.id
                         ORDER BY COUNT(r.id) DESC
                         LIMIT 1
                     ");
-                    $stmtIvaQFallback->execute([$periodo_id]);
+                    $stmtIvaQFallback->execute([$encuesta_id, $periodo_id]);
                     $ivaQ = $stmtIvaQFallback->fetch();
                     
                     // If no responses yet, just pick the newest IVA question
                     if (!$ivaQ) {
                         $stmtIvaQFallback2 = $pdo->prepare("
-                            SELECT id FROM pregunta 
-                            WHERE texto_pregunta LIKE '%IVA%' OR texto_pregunta LIKE '%I.V.A%' OR texto_pregunta LIKE '%iva%'
-                            ORDER BY id DESC
+                            SELECT p.id FROM pregunta p
+                            JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                            WHERE ep.encuesta_id = ?
+                              AND (p.texto_pregunta LIKE '%IVA%' OR p.texto_pregunta LIKE '%I.V.A%' OR p.texto_pregunta LIKE '%iva%')
+                            ORDER BY p.id DESC
                             LIMIT 1
                         ");
-                        $stmtIvaQFallback2->execute();
+                        $stmtIvaQFallback2->execute([$encuesta_id]);
                         $ivaQ = $stmtIvaQFallback2->fetch();
                     }
                 }
@@ -1146,12 +1213,24 @@ switch ($method) {
             
             // 6. Camara Distribution (NEW)
             $camaraStats = [];
-            $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE tipo = 'selector_camara' LIMIT 1");
-            $stmtCamaraQ->execute();
+            $stmtCamaraQ = $pdo->prepare("
+                SELECT p.id FROM pregunta p
+                JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                WHERE ep.encuesta_id = ? AND p.tipo = 'selector_camara' 
+                LIMIT 1
+            ");
+            $stmtCamaraQ->execute([$encuesta_id]);
             $camaraQ = $stmtCamaraQ->fetch();
             if (!$camaraQ) {
-                $stmtCamaraQ = $pdo->prepare("SELECT id FROM pregunta WHERE (texto_pregunta LIKE '%Cámara%' OR texto_pregunta LIKE '%Camara%' OR texto_pregunta LIKE '%Asociación%' OR texto_pregunta LIKE '%pertenece%') AND tipo = 'opcion_unica' ORDER BY id LIMIT 1");
-                $stmtCamaraQ->execute();
+                $stmtCamaraQ = $pdo->prepare("
+                    SELECT p.id FROM pregunta p
+                    JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                    WHERE ep.encuesta_id = ? 
+                      AND (p.texto_pregunta LIKE '%Cámara%' OR p.texto_pregunta LIKE '%Camara%' OR p.texto_pregunta LIKE '%Asociación%' OR p.texto_pregunta LIKE '%pertenece%') 
+                      AND p.tipo = 'opcion_unica' 
+                    ORDER BY p.id LIMIT 1
+                ");
+                $stmtCamaraQ->execute([$encuesta_id]);
                 $camaraQ = $stmtCamaraQ->fetch();
             }
             if ($camaraQ) {
@@ -1434,6 +1513,10 @@ switch ($method) {
              send_json($pdo->query("SELECT * FROM localidad ORDER BY nombre")->fetchAll());
         }
         
+        if ($requestPath === '/camaras') {
+             send_json($pdo->query("SELECT * FROM camara ORDER BY nombre")->fetchAll());
+        }
+        
         if ($requestPath === '/periodos') {
             $surveyId = $_GET['encuesta_id'] ?? null;
             $sql = "SELECT * FROM encuesta_periodo";
@@ -1454,6 +1537,11 @@ switch ($method) {
                        GROUP_CONCAT(COALESCE(o.valor, 'NULL_VAL') ORDER BY o.id SEPARATOR '|||') as opciones_valores,
                        GROUP_CONCAT(COALESCE(o.siguiente_seccion_id, '') ORDER BY o.id SEPARATOR '|||') as opciones_saltos
                 FROM pregunta p 
+                JOIN (
+                    SELECT MIN(id) as id 
+                    FROM pregunta 
+                    GROUP BY texto_pregunta
+                ) p_unique ON p.id = p_unique.id
                 LEFT JOIN opcion o ON p.id = o.pregunta_id
                 GROUP BY p.id ORDER BY p.categoria, p.orden, p.id
             ");

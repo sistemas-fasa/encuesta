@@ -25,6 +25,7 @@ export default function SurveyForm() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [informeAnterior, setInformeAnterior] = useState(null);
 
   const [activeSorteo, setActiveSorteo] = useState(null);
   const [sorteoCheckedForCamera, setSorteoCheckedForCamera] = useState(null);
@@ -515,6 +516,13 @@ export default function SurveyForm() {
 
       await api.saveRespuestas(data);
       setSubmitted(true);
+      
+      try {
+        const inf = await api.checkInformeAnterior();
+        setInformeAnterior(inf);
+      } catch (err) {
+        console.error('Error fetching informe:', err);
+      }
     } catch (err) {
       surveyLogger.error('handleSubmit', err);
       setError(err.message || 'Error al guardar respuestas. Por favor intentá de nuevo.');
@@ -549,7 +557,21 @@ export default function SurveyForm() {
           <CheckCircle2 size={80} color="var(--success)" style={{ marginBottom: '1.5rem' }} />
           <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>¡Muchas gracias!</h2>
           <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Tus respuestas han sido registradas exitosamente para este período.</p>
-          <button className="btn btn-primary" onClick={() => window.location.reload()}>Enviar otra respuesta</button>
+          
+          {informeAnterior && informeAnterior.disponible && (
+            <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem' }}>
+                <h4 style={{ color: 'var(--success)', marginBottom: '0.5rem' }}>Resultados Anteriores</h4>
+                <p style={{ marginBottom: '1rem' }}>¿Desea ver el informe de resultados del mes anterior ({informeAnterior.mes})?</p>
+                <a href={informeAnterior.url} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ display: 'inline-block', width: '100%', background: 'var(--success)', borderColor: 'var(--success)', color: '#fff' }}>📄 Ver resultados</a>
+            </div>
+          )}
+          {informeAnterior && !informeAnterior.disponible && (
+            <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '1rem', borderRadius: '12px', marginBottom: '2rem', color: 'var(--primary)' }}>
+                El informe del mes anterior aún no está disponible.
+            </div>
+          )}
+
+          <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => window.location.reload()}>Finalizar / Enviar otra respuesta</button>
         </div>
       </div>
     );

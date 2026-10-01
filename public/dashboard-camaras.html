@@ -338,6 +338,35 @@
     </div>
   </div>
   <script>
+    function splitLabel(str) {
+      if (str === null || str === undefined) return '';
+      const s = String(str).trim();
+      if (s.length <= 15) return s;
+      const words = s.split(' ');
+      if (words.length <= 1) return s;
+      
+      let bestIndex = 1;
+      let minDiff = Infinity;
+      const totalLen = s.length;
+      
+      let currentLen = 0;
+      for (let i = 0; i < words.length - 1; i++) {
+        currentLen += words[i].length + (i > 0 ? 1 : 0);
+        const firstHalfLen = currentLen;
+        const secondHalfLen = totalLen - firstHalfLen - 1;
+        const diff = Math.abs(firstHalfLen - secondHalfLen);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIndex = i + 1;
+        }
+      }
+      
+      return [
+        words.slice(0, bestIndex).join(' '),
+        words.slice(bestIndex).join(' ')
+      ];
+    }
+
     // ============================================================
     // DATA
     // ============================================================
@@ -506,7 +535,7 @@
         return;
       }
 
-      const labels = filteredCamaras.map(c => c.nombre);
+      const labels = filteredCamaras.map(c => splitLabel(c.nombre));
       const data = filteredCamaras.map(c => c.total);
       const colors = filteredCamaras.map(c => getColor(c.total));
       const borderColors = filteredCamaras.map(c => getBorderColor(c.total));

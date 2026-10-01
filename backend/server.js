@@ -493,42 +493,24 @@ app.post('/api/encuestas/:id/duplicate', isAuthenticated, async (req, res) => {
             }
         }
 
-        // 3. Duplicate QUESTIONS and link to new sections
+        // 3. Link existing QUESTIONS to new sections (Questions are unique/shared)
         const [questions] = await connection.query(`
-            SELECT p.*, ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
+            SELECT p.id as pregunta_id, ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
             FROM pregunta p
             JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
             WHERE ep.encuesta_id = ?`, [originalSurveyId]);
             
-        const questionMap = {}; // Maps old question ID to new question ID
         for (const q of questions) {
             const newSeccionId = q.ep_seccion_id ? sectionMap[q.ep_seccion_id] : null;
-            const [newQ] = await connection.query(
-                'INSERT INTO pregunta (texto_pregunta, tipo, camara_id, encuesta_id, orden, seccion_id) VALUES (?, ?, ?, ?, ?, ?)',
-                [q.texto_pregunta, q.tipo, q.camara_id, newSurveyId, q.ep_orden, newSeccionId]
-            );
-            questionMap[q.id] = newQ.insertId;
             
-            // Insert into the new pivot table
+            // Insert into the pivot table ONLY, reusing the existing question
             await connection.query(
                 'INSERT INTO encuesta_pregunta (encuesta_id, pregunta_id, seccion_id, orden) VALUES (?, ?, ?, ?)',
-                [newSurveyId, newQ.insertId, newSeccionId, q.ep_orden]
+                [newSurveyId, q.pregunta_id, newSeccionId, q.ep_orden]
             );
         }
 
-        // 4. Duplicate OPTIONS and map section jumps
-        for (const oldQId in questionMap) {
-            const newQId = questionMap[oldQId];
-            const [options] = await connection.query('SELECT * FROM opcion WHERE pregunta_id = ?', [oldQId]);
-            
-            for (const o of options) {
-                const nextSecId = o.siguiente_seccion_id ? sectionMap[o.siguiente_seccion_id] : null;
-                await connection.query(
-                    'INSERT INTO opcion (pregunta_id, texto_opcion, valor, siguiente_seccion_id) VALUES (?, ?, ?, ?)',
-                    [newQId, o.texto_opcion, o.valor !== undefined ? o.valor : null, nextSecId]
-                );
-            }
-        }
+        // 4. OPTIONS are not duplicated because questions are unique and shared.
 
         await connection.commit();
         res.json({ message: 'Encuesta duplicada correctamente con todas sus secciones y lógica.', newId: newSurveyId });
@@ -800,6 +782,53 @@ app.delete('/api/localidades/:id', isAuthenticated, async (req, res) => {
         await pool.query('DELETE FROM localidad WHERE id = ?', [req.params.id]);
         res.json({ message: 'Localidad eliminada' });
     } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// --- CAMARAS CRUD ---
+app.get('/api/camaras', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM camara ORDER BY nombre');
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/camaras', isAuthenticated, async (req, res) => {
+    const { nombre } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    let sigla = null;
+    const match = nombre.trim().match(/^\(([A-Za-z0-9_-]+)\)/);
+    if (match) sigla = match[1];
+    try {
+        const [r] = await pool.query('INSERT INTO camara (nombre, sigla) VALUES (?, ?)', [nombre, sigla]);
+        res.json({ id: r.insertId, nombre, sigla });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/camaras/:id', isAuthenticated, async (req, res) => {
+    const { nombre } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    let sigla = null;
+    const match = nombre.trim().match(/^\(([A-Za-z0-9_-]+)\)/);
+    if (match) sigla = match[1];
+    try {
+        await pool.query('UPDATE camara SET nombre = ?, sigla = COALESCE(?, sigla) WHERE id = ?', [nombre, sigla, req.params.id]);
+        res.json({ message: 'Camara actualizada' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/camaras/:id', isAuthenticated, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM camara WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Camara eliminada' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 

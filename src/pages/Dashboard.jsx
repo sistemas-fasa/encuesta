@@ -89,6 +89,36 @@ const PDF_COLORS = {
 };
 const DEFAULT_SECTOR_COLOR = '#94a3b8';
 
+// Helper to split long camera names into two lines
+const splitLabel = (str) => {
+  if (str === null || str === undefined) return '';
+  const s = String(str).trim();
+  if (s.length <= 15) return s;
+  const words = s.split(' ');
+  if (words.length <= 1) return s;
+  
+  let bestIndex = 1;
+  let minDiff = Infinity;
+  const totalLen = s.length;
+  
+  let currentLen = 0;
+  for (let i = 0; i < words.length - 1; i++) {
+    currentLen += words[i].length + (i > 0 ? 1 : 0);
+    const firstHalfLen = currentLen;
+    const secondHalfLen = totalLen - firstHalfLen - 1;
+    const diff = Math.abs(firstHalfLen - secondHalfLen);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestIndex = i + 1;
+    }
+  }
+  
+  return [
+    words.slice(0, bestIndex).join(' '),
+    words.slice(bestIndex).join(' ')
+  ];
+};
+
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [encuestas, setEncuestas] = useState([]);
@@ -635,7 +665,7 @@ export default function Dashboard() {
 
   const camaraBarData = React.useMemo(() => {
     if (camaraFiltered.length === 0) return null;
-    const labels = camaraFiltered.map(c => c.nombre);
+    const labels = camaraFiltered.map(c => splitLabel(c.nombre));
     const data = camaraFiltered.map(c => c.total);
     const colors = camaraFiltered.map(c => getCamaraColor(c.total));
     const percentages = camaraFiltered.map(c => c.percentage);
@@ -673,7 +703,7 @@ export default function Dashboard() {
   const camaraPieData = React.useMemo(() => {
     const sorted = [...camaraWithPct].sort((a, b) => b.total - a.total);
     if (sorted.length === 0) return null;
-    return { labels: sorted.map(c => c.nombre), datasets: [{ data: sorted.map(c => c.total), backgroundColor: PIE_COLORS.slice(0, sorted.length), borderWidth: 2, borderColor: '#ffffff' }] };
+    return { labels: sorted.map(c => splitLabel(c.nombre)), datasets: [{ data: sorted.map(c => c.total), backgroundColor: PIE_COLORS.slice(0, sorted.length), borderWidth: 2, borderColor: '#ffffff' }] };
   }, [camaraWithPct]);
 
   const handleCamaraBarClick = (event, elements) => {
@@ -1543,7 +1573,7 @@ export default function Dashboard() {
                 <div style={{ minHeight: `${Math.max(camaraFiltered.length * 42, 300)}px`, position: 'relative', width: '100%' }}>
                   {camaraBarData && (
                     <Bar data={{
-                      labels: camaraFiltered.map(c => c.nombre),
+                      labels: camaraFiltered.map(c => splitLabel(c.nombre)),
                       datasets: [{
                         label: 'Asociados',
                         data: camaraFiltered.map(c => c.total),
