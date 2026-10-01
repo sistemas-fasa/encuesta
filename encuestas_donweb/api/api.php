@@ -567,9 +567,10 @@ switch ($method) {
                      }
                  }
                 
-                // 4. Link existing QUESTIONS to new sections (Questions are unique/shared)
+                // 4. Duplicate QUESTIONS and OPTIONS
                 $stmt = $pdo->prepare("
-                    SELECT p.id as pregunta_id, ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
+                    SELECT p.id as old_pregunta_id, p.texto_pregunta, p.tipo, p.orden as p_orden, p.categoria, p.estilo, 
+                           ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
                     FROM pregunta p
                     JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
                     WHERE ep.encuesta_id = ?
@@ -577,21 +578,49 @@ switch ($method) {
                 $stmt->execute([$surveyId]);
                 $questions = $stmt->fetchAll();
                 
+                $insertPregunta = $pdo->prepare("INSERT INTO pregunta (texto_pregunta, tipo, orden, categoria, estilo) VALUES (?, ?, ?, ?, ?)");
                 $insertEP = $pdo->prepare("INSERT INTO encuesta_pregunta (encuesta_id, pregunta_id, seccion_id, orden) VALUES (?, ?, ?, ?)");
+                
+                $stmtOpciones = $pdo->prepare("SELECT * FROM opcion WHERE pregunta_id = ?");
+                $insertOpcion = $pdo->prepare("INSERT INTO opcion (pregunta_id, texto_opcion, valor, siguiente_seccion_id) VALUES (?, ?, ?, ?)");
                 
                 foreach ($questions as $q) {
                     $newSecId = $q['ep_seccion_id'] ? ($sectionMap[$q['ep_seccion_id']] ?? null) : null;
                     
-                    // Insert into pivot table only
+                    // Duplicate question
+                    $insertPregunta->execute([
+                        $q['texto_pregunta'],
+                        $q['tipo'],
+                        $q['p_orden'] ?? 0,
+                        $q['categoria'] ?? null,
+                        $q['estilo'] ?? 'auto'
+                    ]);
+                    $newPreguntaId = $pdo->lastInsertId();
+                    
+                    // Link to new survey
                     $insertEP->execute([
                         $newSurveyId,
-                        $q['pregunta_id'],
+                        $newPreguntaId,
                         $newSecId,
                         $q['ep_orden']
                     ]);
+                    
+                    // Duplicate options
+                    $stmtOpciones->execute([$q['old_pregunta_id']]);
+                    $opciones = $stmtOpciones->fetchAll();
+                    
+                    foreach ($opciones as $opt) {
+                        $newOptNextSecId = $opt['siguiente_seccion_id'] ? ($sectionMap[$opt['siguiente_seccion_id']] ?? null) : null;
+                        $insertOpcion->execute([
+                            $newPreguntaId,
+                            $opt['texto_opcion'],
+                            $opt['valor'],
+                            $newOptNextSecId
+                        ]);
+                    }
                 }
                 
-                // 5. OPTIONS are not duplicated because questions are shared.
+                // 5. OPTIONS are now duplicated so conditional logic is preserved.
                 
                 $pdo->commit();
                 send_json(['message' => 'Duplicado exitoso', 'newId' => $newSurveyId]);
