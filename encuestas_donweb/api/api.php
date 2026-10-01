@@ -36,6 +36,19 @@ if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0777, true);
 }
 
+// Migración: tabla de informes_mensuales
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `informes_mensuales` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `mes` varchar(7) NOT NULL COMMENT 'Formato YYYY-MM',
+      `archivo_pdf` varchar(255) NOT NULL,
+      `fecha_carga` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `activo` tinyint(1) NOT NULL DEFAULT '1',
+      PRIMARY KEY (`id`),
+      UNIQUE KEY `mes_unico` (`mes`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {}
+
 if (
     (isset($_GET['debug']) && $_GET['debug'] === 'iva') || 
     (isset($_SERVER['QUERY_STRING']) && strpos($_SERVER['QUERY_STRING'], 'debug=iva') !== false) ||
@@ -206,46 +219,6 @@ function match_route($pattern, $path) {
 
 switch ($method) {
     case 'POST':
-
-        // INFORMES - Upload PDF (ADMIN)
-        if ($requestPath === '/informes') {
-            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
-
-            if (!isset($_FILES['archivo_pdf']) || $_FILES['archivo_pdf']['error'] !== UPLOAD_ERR_OK) {
-                send_json(['error' => 'No se envió ningún archivo'], 400);
-            }
-
-            $mes = $_POST['mes'] ?? '';
-            if (!$mes || !preg_match('/^\d{4}-\d{2}$/', $mes)) {
-                send_json(['error' => 'Mes inválido. Use formato YYYY-MM'], 400);
-            }
-
-            $file = $_FILES['archivo_pdf'];
-            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            if ($ext !== 'pdf') {
-                send_json(['error' => 'Solo se permiten archivos PDF'], 400);
-            }
-
-            $uploadDir = __DIR__ . '/../uploads/informes';
-            if (!is_dir($uploadDir)) {
-                mkdir($uploadDir, 0777, true);
-            }
-
-            $filename = 'informe_' . $mes . '_' . time() . '.pdf';
-            $destPath = $uploadDir . '/' . $filename;
-
-            if (!move_uploaded_file($file['tmp_name'], $destPath)) {
-                send_json(['error' => 'Error al guardar el archivo'], 500);
-            }
-
-            send_json([
-                'success' => true,
-                'id' => $filename,
-                'mes' => $mes,
-                'archivo' => $filename,
-                'url' => '/encuestas/uploads/informes/' . $filename
-            ]);
-        }
 
         // USUARIOS
         if ($requestPath === '/usuarios') {
@@ -567,60 +540,55 @@ switch ($method) {
                      }
                  }
                 
-                // 4. Duplicate QUESTIONS and OPTIONS
+                // 4. Duplicate QUESTIONS (using encuesta_pregunta pivot table)
                 $stmt = $pdo->prepare("
-                    SELECT p.id as old_pregunta_id, p.texto_pregunta, p.tipo, p.orden as p_orden, p.categoria, p.estilo, 
-                           ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
+                    SELECT p.*, ep.seccion_id as ep_seccion_id, ep.orden as ep_orden
                     FROM pregunta p
                     JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
                     WHERE ep.encuesta_id = ?
                 ");
                 $stmt->execute([$surveyId]);
                 $questions = $stmt->fetchAll();
+                $questionMap = [];
                 
-                $insertPregunta = $pdo->prepare("INSERT INTO pregunta (texto_pregunta, tipo, orden, categoria, estilo) VALUES (?, ?, ?, ?, ?)");
+                $insertQ = $pdo->prepare("INSERT INTO pregunta (texto_pregunta, tipo, camara_id, encuesta_id, orden, seccion_id, estilo) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 $insertEP = $pdo->prepare("INSERT INTO encuesta_pregunta (encuesta_id, pregunta_id, seccion_id, orden) VALUES (?, ?, ?, ?)");
-                
-                $stmtOpciones = $pdo->prepare("SELECT * FROM opcion WHERE pregunta_id = ?");
-                $insertOpcion = $pdo->prepare("INSERT INTO opcion (pregunta_id, texto_opcion, valor, siguiente_seccion_id) VALUES (?, ?, ?, ?)");
                 
                 foreach ($questions as $q) {
                     $newSecId = $q['ep_seccion_id'] ? ($sectionMap[$q['ep_seccion_id']] ?? null) : null;
-                    
-                    // Duplicate question
-                    $insertPregunta->execute([
+                    $insertQ->execute([
                         $q['texto_pregunta'],
                         $q['tipo'],
-                        $q['p_orden'] ?? 0,
-                        $q['categoria'] ?? null,
+                        $q['camara_id'],
+                        $newSurveyId,
+                        $q['ep_orden'],
+                        $newSecId,
                         $q['estilo'] ?? 'auto'
                     ]);
-                    $newPreguntaId = $pdo->lastInsertId();
+                    $newQId = $pdo->lastInsertId();
+                    $questionMap[$q['id']] = $newQId;
                     
-                    // Link to new survey
+                    // Insert into pivot table
                     $insertEP->execute([
                         $newSurveyId,
-                        $newPreguntaId,
+                        $newQId,
                         $newSecId,
                         $q['ep_orden']
                     ]);
-                    
-                    // Duplicate options
-                    $stmtOpciones->execute([$q['old_pregunta_id']]);
-                    $opciones = $stmtOpciones->fetchAll();
-                    
-                    foreach ($opciones as $opt) {
-                        $newOptNextSecId = $opt['siguiente_seccion_id'] ? ($sectionMap[$opt['siguiente_seccion_id']] ?? null) : null;
-                        $insertOpcion->execute([
-                            $newPreguntaId,
-                            $opt['texto_opcion'],
-                            $opt['valor'],
-                            $newOptNextSecId
-                        ]);
-                    }
                 }
                 
-                // 5. OPTIONS are now duplicated so conditional logic is preserved.
+                // 5. Duplicate OPTIONS
+                foreach ($questionMap as $oldQId => $newQId) {
+                    $stmt = $pdo->prepare("SELECT * FROM opcion WHERE pregunta_id = ?");
+                    $stmt->execute([$oldQId]);
+                    $options = $stmt->fetchAll();
+                    
+                    $insertOpt = $pdo->prepare("INSERT INTO opcion (pregunta_id, texto_opcion, valor, siguiente_seccion_id) VALUES (?, ?, ?, ?)");
+                    foreach ($options as $o) {
+                        $nextSecId = $o['siguiente_seccion_id'] ? ($sectionMap[$o['siguiente_seccion_id']] ?? null) : null;
+                        $insertOpt->execute([$newQId, $o['texto_opcion'], $o['valor'], $nextSecId]);
+                    }
+                }
                 
                 $pdo->commit();
                 send_json(['message' => 'Duplicado exitoso', 'newId' => $newSurveyId]);
@@ -704,6 +672,21 @@ switch ($method) {
             if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
             $stmt = $pdo->query("SELECT id, usuario, nombre, email, rol, estado, fecha_creacion FROM usuarios");
             send_json($stmt->fetchAll());
+        }
+
+        // INFORME ANTERIOR
+        if ($requestPath === '/informe-anterior') {
+            $mes_anterior = date('Y-m', strtotime('first day of last month'));
+            $stmt = $pdo->prepare("SELECT archivo_pdf FROM informes_mensuales WHERE mes = ? AND activo = 1 LIMIT 1");
+            $stmt->execute([$mes_anterior]);
+            $fila = $stmt->fetch();
+            
+            if ($fila) {
+                // Ensure absolute path from the root or relative to the frontend domain
+                send_json(['disponible' => true, 'mes' => $mes_anterior, 'url' => '/encuestas/uploads/informes/' . $fila['archivo_pdf']]);
+            } else {
+                send_json(['disponible' => false, 'mes' => $mes_anterior]);
+            }
         }
 
 
@@ -1544,60 +1527,6 @@ switch ($method) {
             send_json($pdo->query($sql)->fetchAll());
         }
 
-        // INFORME ANTERIOR - Check if there's a PDF for the previous month (PUBLIC)
-        if ($requestPath === '/informe-anterior') {
-            $informesDir = __DIR__ . '/../uploads/informes';
-            if (!is_dir($informesDir)) {
-                send_json(['disponible' => false, 'mes' => '', 'url' => '']);
-            }
-
-            $files = glob($informesDir . '/informe_*.pdf');
-            if (empty($files)) {
-                send_json(['disponible' => false, 'mes' => '', 'url' => '']);
-            }
-
-            // Sort by filename (contains YYYY-MM) descending to get latest
-            usort($files, function($a, $b) {
-                return basename($b) <=> basename($a);
-            });
-
-            $latest = $files[0];
-            $basename = basename($latest);
-            // Extract YYYY-MM from filename: informe_YYYY-MM_timestamp.pdf
-            if (preg_match('/informe_(\d{4}-\d{2})_\d+\.pdf/', $basename, $m)) {
-                $mes = $m[1];
-                $url = '/encuestas/uploads/informes/' . $basename;
-                send_json(['disponible' => true, 'mes' => $mes, 'url' => $url]);
-            } else {
-                send_json(['disponible' => false, 'mes' => '', 'url' => '']);
-            }
-        }
-
-        // INFORMES - List all (ADMIN)
-        if ($requestPath === '/informes') {
-            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
-            $informesDir = __DIR__ . '/../uploads/informes';
-            if (!is_dir($informesDir)) {
-                send_json([]);
-            }
-            $files = glob($informesDir . '/informe_*.pdf');
-            $result = [];
-            foreach ($files as $f) {
-                $basename = basename($f);
-                if (preg_match('/informe_(\d{4}-\d{2})_(\d+)\.pdf/', $basename, $m)) {
-                    $result[] = [
-                        'id' => $basename,
-                        'mes' => $m[1],
-                        'archivo' => $basename,
-                        'url' => '/encuestas/uploads/informes/' . $basename,
-                        'fecha_carga' => date('Y-m-d H:i:s', filemtime($f))
-                    ];
-                }
-            }
-            usort($result, function($a, $b) { return $b['mes'] <=> $a['mes']; });
-            send_json($result);
-        }
-
         // BANCO DE PREGUNTAS (ALL)
         if ($requestPath === '/banco-preguntas') {
             if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
@@ -1775,18 +1704,6 @@ switch ($method) {
         break;
 
     case 'DELETE':
-
-        // INFORMES - Delete PDF (ADMIN)
-        if (preg_match('#^/informes/([a-zA-Z0-9._-]+)$#', $requestPath, $matches)) {
-            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
-            $filename = basename($matches[1]);
-            $filePath = __DIR__ . '/../uploads/informes/' . $filename;
-            if (!file_exists($filePath)) {
-                send_json(['error' => 'Archivo no encontrado'], 404);
-            }
-            unlink($filePath);
-            send_json(['success' => true, 'message' => 'Informe eliminado']);
-        }
 
         // USUARIOS
         if ($matches = match_route('/usuarios/:id', $requestPath)) {
