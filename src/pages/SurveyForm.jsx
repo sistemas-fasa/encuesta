@@ -136,6 +136,17 @@ export default function SurveyForm() {
             sectorIds.push(Number(sec.sector_id));
           }
         }
+      } else if (val.opciones_ids && Array.isArray(val.opciones_ids)) {
+        const q = preguntas.find(p => String(p.id) === String(pId));
+        val.opciones_ids.forEach(optId => {
+          const opt = q?.opciones?.find(o => String(o.id) === String(optId));
+          if (opt?.siguiente_seccion_id) {
+            const sec = secciones.find(s => String(s.id) === String(opt.siguiente_seccion_id));
+            if (sec?.sector_id) {
+              sectorIds.push(Number(sec.sector_id));
+            }
+          }
+        });
       }
     });
     return sectorIds;
@@ -245,9 +256,16 @@ export default function SurveyForm() {
 
     // PRIORIDAD 0: Si la sección actual tiene "siguiente sección" configurada directamente, usarla
     if (currentSection?.siguiente_seccion_id) {
-      const nextIdx = secciones.findIndex(s => String(s.id) === String(currentSection.siguiente_seccion_id));
-      if (nextIdx !== -1 && nextIdx !== currentIndex) {
-        return nextIdx;
+      const hasPendingActivated = secciones.some((s, idx) => 
+        idx > currentIndex && 
+        !history.includes(idx) && 
+        activeJumpTargetIds.includes(String(s.id))
+      );
+      if (!hasPendingActivated) {
+        const nextIdx = secciones.findIndex(s => String(s.id) === String(currentSection.siguiente_seccion_id));
+        if (nextIdx !== -1 && nextIdx !== currentIndex) {
+          return nextIdx;
+        }
       }
     }
 
@@ -287,9 +305,14 @@ export default function SurveyForm() {
         // Skip section if it's a conditional jump target but was NOT triggered by the user
         const isConditionalTarget = allConditionalTargetIds.includes(secIdStr);
         const wasActivated = activeJumpTargetIds.includes(secIdStr);
-        if (isConditionalTarget && !wasActivated) {
-          nextIdx++;
-          continue;
+        
+        if (isConditionalTarget) {
+          if (wasActivated) {
+            break; // ALWAYS show explicitly activated conditional targets
+          } else {
+            nextIdx++;
+            continue;
+          }
         }
 
         // Show general sections (no sector_id) or sections matching selected sectors.
