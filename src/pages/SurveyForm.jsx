@@ -252,82 +252,72 @@ export default function SurveyForm() {
   // nextSectionIndex: Calculates the index of the next section to visit based on current state and jumps
   const nextSectionIndex = React.useMemo(() => {
     try {
-    if (!currentSection || currentIndex === -1) return -1;
+      if (!currentSection || currentIndex === -1) return -1;
 
-    // PRIORIDAD 0: Si la sección actual tiene "siguiente sección" configurada directamente, usarla
-    if (currentSection?.siguiente_seccion_id) {
-      const hasPendingActivated = secciones.some((s, idx) => 
-        idx > currentIndex && 
-        !history.includes(idx) && 
-        activeJumpTargetIds.includes(String(s.id))
-      );
-      if (!hasPendingActivated) {
-        const nextIdx = secciones.findIndex(s => String(s.id) === String(currentSection.siguiente_seccion_id));
-        if (nextIdx !== -1 && nextIdx !== currentIndex) {
+      // 1. Check for explicit jumps in answers (IMMEDIATE JUMP)
+      let nextSectionId = null;
+      currentPreguntas.forEach(p => {
+        const answer = respuestas[p.id];
+        if (answer && (p.tipo === 'opcion_unica' || p.tipo === 'selector_rubro' || p.tipo === 'selector_camara')) {
+          if (answer.siguiente_seccion_id) {
+            nextSectionId = answer.siguiente_seccion_id;
+          }
+        }
+      });
+
+      if (nextSectionId) {
+        const nextIdx = secciones.findIndex(s => String(s.id) === String(nextSectionId));
+        if (nextIdx !== -1 && nextIdx !== currentIndex && !history.includes(nextIdx)) {
           return nextIdx;
         }
       }
-    }
 
-    let nextSectionId = null;
+      // 2. Are there any explicitly activated conditional sections that we HAVEN'T visited yet?
+      const firstUnvisitedTargetIdx = secciones.findIndex((s, idx) => 
+        !history.includes(idx) && 
+        idx !== currentIndex &&
+        activeJumpTargetIds.includes(String(s.id))
+      );
+      
+      if (firstUnvisitedTargetIdx !== -1) {
+        return firstUnvisitedTargetIdx;
+      }
 
-    // 1. Check for explicit jumps in answers (IMMEDIATE JUMP)
-    currentPreguntas.forEach(p => {
-      const answer = respuestas[p.id];
-      if (answer && (p.tipo === 'opcion_unica' || p.tipo === 'selector_rubro' || p.tipo === 'selector_camara')) {
-        if (answer.siguiente_seccion_id) {
-          nextSectionId = answer.siguiente_seccion_id;
+      // 3. PRIORIDAD 0: Si la sección actual tiene "siguiente sección" configurada directamente
+      if (currentSection?.siguiente_seccion_id) {
+        const nextIdx = secciones.findIndex(s => String(s.id) === String(currentSection.siguiente_seccion_id));
+        if (nextIdx !== -1 && nextIdx !== currentIndex && !history.includes(nextIdx)) {
+          return nextIdx;
         }
       }
-    });
 
-    if (nextSectionId) {
-      const nextIdx = secciones.findIndex(s => String(s.id) === String(nextSectionId));
-      if (nextIdx !== -1 && nextIdx !== currentIndex) {
-        return nextIdx;
-      }
-    }
+      // 4. Sequential logic
+      if (currentIndex < secciones.length - 1) {
+        let nextIdx = currentIndex + 1;
 
-    // 2. Sequential logic — skip sections that are conditional targets NOT triggered, or wrong sector
-    if (currentIndex < secciones.length - 1) {
-      let nextIdx = currentIndex + 1;
+        while (nextIdx < secciones.length) {
+          const nextSec = secciones[nextIdx];
+          const secIdStr = String(nextSec.id);
 
-      while (nextIdx < secciones.length) {
-        const nextSec = secciones[nextIdx];
-        const secIdStr = String(nextSec.id);
-
-        // Skip section if it's already in history to prevent circular loops
-        if (history.includes(nextIdx)) {
-          nextIdx++;
-          continue;
-        }
-
-        // Skip section if it's a conditional jump target but was NOT triggered by the user
-        const isConditionalTarget = allConditionalTargetIds.includes(secIdStr);
-        const wasActivated = activeJumpTargetIds.includes(secIdStr);
-        
-        if (isConditionalTarget) {
-          if (wasActivated) {
-            break; // ALWAYS show explicitly activated conditional targets
-          } else {
+          if (history.includes(nextIdx)) {
             nextIdx++;
             continue;
           }
-        }
 
-        // Show general sections (no sector_id) or sections matching selected sectors.
-        if (!nextSec.sector_id || sessionSectorIds.includes(Number(nextSec.sector_id))) {
-          break;
+          const isConditionalTarget = allConditionalTargetIds.includes(secIdStr);
+          if (isConditionalTarget) {
+            nextIdx++;
+            continue;
+          }
+
+          if (!nextSec.sector_id || sessionSectorIds.includes(Number(nextSec.sector_id))) {
+            return nextIdx;
+          }
+          nextIdx++;
         }
-        nextIdx++;
       }
 
-      if (nextIdx < secciones.length) {
-        return nextIdx;
-      }
-    }
-
-    return -1;
+      return -1;
     } catch (err) {
       surveyLogger.error('nextSectionIndex', err);
       return -1;
