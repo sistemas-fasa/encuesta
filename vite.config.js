@@ -5,7 +5,7 @@ import path from 'path'
 
 const BUILD_VERSION = Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6)
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   define: {
     __BUILD_VERSION__: JSON.stringify(BUILD_VERSION)
   },
@@ -39,5 +39,5 @@ export default defineConfig(({ mode }) => ({
       }
     }
   ],
-  base: mode === 'production' ? '/encuestas/' : '/',
+  base: '/',
 }))
