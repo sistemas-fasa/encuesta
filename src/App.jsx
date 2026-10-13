@@ -69,10 +69,8 @@ function App() {
     );
   }
 
-  const basename = import.meta.env.MODE === 'production' ? '/encuestas' : '';
-
   return (
-    <Router basename={basename}>
+    <Router>
       <nav className="glass-card no-print" style={{ 
         borderRadius: 0, 
         border: 'none', 
