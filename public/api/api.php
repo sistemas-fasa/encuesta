@@ -2,6 +2,27 @@
 // backend/php/api.php
 require_once __DIR__ . '/config.php';
 
+// Migración v6 idempotente: crea la relación encuesta-pregunta y recupera vínculos existentes.
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `encuesta_pregunta` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `encuesta_id` INT NOT NULL,
+        `pregunta_id` INT NOT NULL,
+        `seccion_id` INT NULL,
+        `orden` INT DEFAULT 0,
+        UNIQUE KEY `uq_encuesta_pregunta` (`encuesta_id`, `pregunta_id`),
+        FOREIGN KEY (`encuesta_id`) REFERENCES `encuesta`(`id`) ON DELETE CASCADE,
+        FOREIGN KEY (`pregunta_id`) REFERENCES `pregunta`(`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("INSERT IGNORE INTO `encuesta_pregunta` (`encuesta_id`, `pregunta_id`, `seccion_id`, `orden`)
+                SELECT `encuesta_id`, `id`, `seccion_id`, `orden`
+                FROM `pregunta`
+                WHERE `encuesta_id` IS NOT NULL");
+} catch (Exception $e) {
+    survey_log('migracion_encuesta_pregunta_fallida', ['error' => $e->getMessage()], 'ERROR');
+}
+
+
 // Aplicar migraciones necesarias automáticamente
 try {
     $pdo->exec("ALTER TABLE pregunta ADD COLUMN estilo VARCHAR(50) DEFAULT 'auto'");
