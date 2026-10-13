@@ -250,6 +250,26 @@
         </div>
       </div>
 
+      <!-- Distribución por Localidad -->
+      <div class="card card-dashboard p-3 p-md-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 class="fw-bold mb-0" style="color:#1e293b"><i class="bi bi-geo me-2"></i>Distribución por Localidad</h5>
+        </div>
+        <div class="table-responsive">
+          <table class="table mb-0" id="localidadTable">
+            <thead>
+              <tr>
+                <th>Localidad</th>
+                <th>Socios</th>
+                <th>No Socios</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="localidadBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Summary -->
       <div class="row g-3 mb-4" id="summaryRow">
         <div class="col-6 col-md-3">
@@ -450,13 +470,18 @@
                 const statsRes = await fetch(`${API_BASE}/stats/${periodos[0].id}`, { credentials: 'include' });
                 if (statsRes.ok) {
                   const rawData = await statsRes.json();
+                  let processed = null;
                   if (rawData.camaraStats && rawData.camaraStats.length > 0) {
-                    return rawData.camaraStats.map(c => ({
+                    processed = rawData.camaraStats.map(c => ({
                       nombre: c.camara_nombre || 'Sin Cámara',
                       total: Number(c.count || 0)
                     }));
                   }
-                }
+                  // Also include localidadStats if available
+                  if (rawData.localidadStats) {
+                    return { ...rawData, localidadStats: rawData.localidadStats, camaraStats: processed };
+                  }
+                  return processed || rawData;
               }
             }
           }
@@ -471,9 +496,18 @@
     // PROCESS DATA
     // ============================================================
     function processData(raw) {
+      // Manejar caso donde raw es un objeto con camaraStats y localidadStats
+      let dataArray = raw;
+      if (raw && typeof raw === 'object' && raw.camaraStats) {
+        dataArray = raw.camaraStats;
+      } else if (raw && Array.isArray(raw) === false) {
+        // Si es un objeto sin camaraStats, usar los datos tal cual (para localityStats)
+        dataArray = Object.entries(raw).map(([key, value]) => ({ nombre: key, total: value }));
+      }
+      
       // Aggregate by camara name
       const map = {};
-      raw.forEach(item => {
+      dataArray.forEach(item => {
         const name = item.nombre || 'Sin Cámara';
         map[name] = (map[name] || 0) + (item.total || 0);
       });
@@ -654,6 +688,27 @@
       document.getElementById('rankingCount').textContent = `${filteredCamaras.length} cámaras`;
     }
 
+    function renderLocalidadTable(localidadStats) {
+      const tbody = document.getElementById('localidadBody');
+      
+      tbody.innerHTML = localidadStats.map((row, idx) => {
+        const socioLabel = row.socios_count > 0 ? `${row.socios_count} socios` : '0 socios';
+        const noSocioLabel = row.no_socios_count > 0 ? `${row.no_socios_count} no socios` : '0 no socios';
+        const totalLabel = row.count > 0 ? `${row.count} respuestas` : '0 respuestas';
+        
+        return `
+          <tr style="align-items:center">
+            <td>${row.localidad_nombre}</td>
+            <td>${socioLabel}</td>
+            <td>${noSocioLabel}</td>
+            <td>${totalLabel}</td>
+          </tr>
+        `;
+      }).join('');
+      
+      document.getElementById('filterCount').textContent = `${localidadStats.length} localidades`;
+    }
+
     // ============================================================
     // MODAL
     // ============================================================
@@ -734,6 +789,12 @@
       try {
         const rawData = await fetchData();
         allCamaras = processData(rawData);
+        
+        // Render localidad distribution if available
+        if (rawData.localidadStats) {
+          renderLocalidadTable(rawData.localidadStats);
+        }
+        
         applyFilter('top10');
         document.getElementById('loadingState').style.display = 'none';
         document.getElementById('dashboardContent').style.display = 'block';

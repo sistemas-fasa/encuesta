@@ -1288,11 +1288,73 @@ app.get('/api/stats/:periodo_id', isAuthenticated, async (req, res) => {
             camaraStats = camaraRows;
         }
 
+        // 6. Localidad Distribution WITH Socio / No Socio
+        let localidadStats = [];
+        let sqlLoc = '';
+        let paramsLoc = [];
+        if (camaraQRows.length > 0) {
+            const camaraPreguntaId = camaraQRows[0].id;
+            sqlLoc = `
+                SELECT 
+                    l.id as localidad_id, 
+                    l.nombre as localidad_nombre, 
+                    s.nombre as sector_nombre,
+                    COUNT(DISTINCT r.fecha_respuesta) as count,
+                    COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NOT NULL THEN r.fecha_respuesta END) as socios,
+                    COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NOT NULL THEN r.fecha_respuesta END) as socios_count,
+                    COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NULL THEN r.fecha_respuesta END) as no_socios,
+                    COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NULL THEN r.fecha_respuesta END) as no_socios_count
+                FROM respuesta r
+                JOIN localidad l ON r.localidad_id = l.id
+                LEFT JOIN sector s ON r.sector_id = s.id
+                LEFT JOIN (
+                    SELECT DISTINCT r_soc.localidad_id, r_soc.fecha_respuesta
+                    FROM respuesta r_soc
+                    JOIN camara c ON (
+                        (r_soc.valor_numerico IS NOT NULL AND CAST(r_soc.valor_numerico AS UNSIGNED) = c.id)
+                        OR (r_soc.valor_texto IS NOT NULL AND CAST(r_soc.valor_texto AS UNSIGNED) = c.id)
+                        OR (r_soc.valor_texto IS NOT NULL AND LOWER(TRIM(r_soc.valor_texto)) = LOWER(TRIM(c.nombre)))
+                        OR (r_soc.opcion_id IS NOT NULL AND (
+                            SELECT LOWER(TRIM(o_c.texto_opcion)) FROM opcion o_c WHERE r_soc.opcion_id = o_c.id
+                        ) = LOWER(TRIM(c.nombre)))
+                    )
+                    WHERE r_soc.encuesta_periodo_id = ?
+                      AND r_soc.pregunta_id = ?
+                      AND (r_soc.valor_texto IS NULL OR r_soc.valor_texto NOT LIKE '%No pertenezco%')
+                ) soc ON soc.localidad_id = r.localidad_id 
+                     AND ABS(TIMESTAMPDIFF(SECOND, soc.fecha_respuesta, r.fecha_respuesta)) <= 20
+                WHERE r.encuesta_periodo_id = ?
+            `;
+            paramsLoc = [periodo_id, camaraPreguntaId, periodo_id];
+        } else {
+            sqlLoc = `
+                SELECT 
+                    l.id as localidad_id, 
+                    l.nombre as localidad_nombre, 
+                    s.nombre as sector_nombre,
+                    COUNT(DISTINCT r.fecha_respuesta) as count,
+                    0 as socios,
+                    0 as socios_count,
+                    COUNT(DISTINCT r.fecha_respuesta) as no_socios,
+                    COUNT(DISTINCT r.fecha_respuesta) as no_socios_count
+                FROM respuesta r
+                JOIN localidad l ON r.localidad_id = l.id
+                LEFT JOIN sector s ON r.sector_id = s.id
+                WHERE r.encuesta_periodo_id = ?
+            `;
+            paramsLoc = [periodo_id];
+        }
+        if (sector_id) { sqlLoc += ' AND r.sector_id = ?'; paramsLoc.push(sector_id); }
+        sqlLoc += ' GROUP BY l.id, l.nombre, s.nombre ORDER BY count DESC';
+        const [locRows] = await pool.query(sqlLoc, paramsLoc);
+        localidadStats = locRows;
+
         res.json({
             total: totalResponses[0].total,
             answers: answers,
             sectorDistribution: sectorRows,
             camaraStats: camaraStats,
+            localidadStats: localidadStats,
             ivaStats: ivaStats,
             _debug_iva: debugIva
         });

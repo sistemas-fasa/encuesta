@@ -907,35 +907,38 @@ switch ($method) {
                 }
             }
 
-            // --- GLOBAL CAMARA FILTER LOGIC ---
+            // --- GLOBAL CAMARA DETECTION & FILTER LOGIC ---
             $camara_id = $_GET['camara_id'] ?? null;
             $globalCamaraPreguntaId = null;
+            $camaraPreguntaId = null;
             $camaraDebug = [];
             
-            if ($camara_id) {
+            $stmtCamaraQ = $pdo->prepare("
+                SELECT p.id FROM pregunta p
+                JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
+                WHERE ep.encuesta_id = ? AND p.tipo = 'selector_camara' 
+                LIMIT 1
+            ");
+            $stmtCamaraQ->execute([$encuesta_id]);
+            $camaraQ = $stmtCamaraQ->fetch();
+            if (!$camaraQ) {
                 $stmtCamaraQ = $pdo->prepare("
                     SELECT p.id FROM pregunta p
                     JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
-                    WHERE ep.encuesta_id = ? AND p.tipo = 'selector_camara' 
-                    LIMIT 1
+                    WHERE ep.encuesta_id = ? 
+                      AND (p.texto_pregunta LIKE '%C�mara%' OR p.texto_pregunta LIKE '%Camara%' OR p.texto_pregunta LIKE '%Asociaci�n%' OR p.texto_pregunta LIKE '%pertenece%') 
+                      AND p.tipo = 'opcion_unica' 
+                    ORDER BY p.id LIMIT 1
                 ");
                 $stmtCamaraQ->execute([$encuesta_id]);
                 $camaraQ = $stmtCamaraQ->fetch();
-                if (!$camaraQ) {
-                    $stmtCamaraQ = $pdo->prepare("
-                        SELECT p.id FROM pregunta p
-                        JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
-                        WHERE ep.encuesta_id = ? 
-                          AND (p.texto_pregunta LIKE '%Cámara%' OR p.texto_pregunta LIKE '%Camara%' OR p.texto_pregunta LIKE '%Asociación%' OR p.texto_pregunta LIKE '%pertenece%') 
-                          AND p.tipo = 'opcion_unica' 
-                        ORDER BY p.id LIMIT 1
-                    ");
-                    $stmtCamaraQ->execute([$encuesta_id]);
-                    $camaraQ = $stmtCamaraQ->fetch();
-                }
-                $globalCamaraPreguntaId = $camaraQ ? $camaraQ['id'] : null;
+            }
+            if ($camaraQ) {
+                $camaraPreguntaId = (int)$camaraQ['id'];
+                $globalCamaraPreguntaId = $camaraPreguntaId;
+            }
 
-                if ($globalCamaraPreguntaId) {
+            if ($camara_id && $globalCamaraPreguntaId) {
                     $sessionJoin .= " JOIN respuesta r_camara ON r_camara.encuesta_periodo_id = r.encuesta_periodo_id 
                                      AND ABS(TIMESTAMPDIFF(SECOND, r_camara.fecha_respuesta, r.fecha_respuesta)) <= 20 
                                      AND r_camara.localidad_id = r.localidad_id 
@@ -970,7 +973,6 @@ switch ($method) {
                         'pregunta_id' => $globalCamaraPreguntaId
                     ];
                 }
-            }
 
             // 1. Total Participantes
             $sqlTotal = "SELECT COUNT(*) as total FROM (SELECT DISTINCT r.fecha_respuesta, r.localidad_id FROM respuesta r $sessionJoin WHERE r.encuesta_periodo_id = ?";
@@ -1022,14 +1024,50 @@ switch ($method) {
             $stmtSec->execute($paramsSec);
             $sectors = $stmtSec->fetchAll();
 
-            // 5. Localidad Distribution (NEW)
-            $sqlLoc = "SELECT l.id as localidad_id, l.nombre as localidad_nombre, s.nombre as sector_nombre, COUNT(DISTINCT r.fecha_respuesta) as count
-                       FROM respuesta r
-                       $sessionJoin
-                       JOIN localidad l ON r.localidad_id = l.id
-                       LEFT JOIN sector s ON r.sector_id = s.id
-                       WHERE r.encuesta_periodo_id = ?";
-            $paramsLoc = array_merge($sessionJoinParams, [$periodo_id]);
+            // 5. Localidad Distribution WITH Socio / No Socio
+            if ($camaraPreguntaId) {
+                $sqlLoc = "SELECT l.id as localidad_id, l.nombre as localidad_nombre, s.nombre as sector_nombre,
+                                  COUNT(DISTINCT r.fecha_respuesta) as count,
+                                  COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NOT NULL THEN r.fecha_respuesta END) as socios,
+                                  COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NOT NULL THEN r.fecha_respuesta END) as socios_count,
+                                  COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NULL THEN r.fecha_respuesta END) as no_socios,
+                                  COUNT(DISTINCT CASE WHEN soc.fecha_respuesta IS NULL THEN r.fecha_respuesta END) as no_socios_count
+                           FROM respuesta r
+                           $sessionJoin
+                           JOIN localidad l ON r.localidad_id = l.id
+                           LEFT JOIN sector s ON r.sector_id = s.id
+                           LEFT JOIN (
+                               SELECT DISTINCT r_soc.localidad_id, r_soc.fecha_respuesta
+                               FROM respuesta r_soc
+                               JOIN camara c ON (
+                                   (r_soc.valor_numerico IS NOT NULL AND CAST(r_soc.valor_numerico AS UNSIGNED) = c.id)
+                                   OR (r_soc.valor_texto IS NOT NULL AND CAST(r_soc.valor_texto AS UNSIGNED) = c.id)
+                                   OR (r_soc.valor_texto IS NOT NULL AND LOWER(TRIM(r_soc.valor_texto)) = LOWER(TRIM(c.nombre)))
+                                   OR (r_soc.opcion_id IS NOT NULL AND (
+                                       SELECT LOWER(TRIM(o_c.texto_opcion)) FROM opcion o_c WHERE r_soc.opcion_id = o_c.id
+                                   ) = LOWER(TRIM(c.nombre)))
+                               )
+                               WHERE r_soc.encuesta_periodo_id = ?
+                                 AND r_soc.pregunta_id = ?
+                                 AND (r_soc.valor_texto IS NULL OR r_soc.valor_texto NOT LIKE '%No pertenezco%')
+                           ) soc ON soc.localidad_id = r.localidad_id 
+                                AND ABS(TIMESTAMPDIFF(SECOND, soc.fecha_respuesta, r.fecha_respuesta)) <= 20
+                           WHERE r.encuesta_periodo_id = ?";
+                $paramsLoc = array_merge($sessionJoinParams, [$periodo_id, $camaraPreguntaId, $periodo_id]);
+            } else {
+                $sqlLoc = "SELECT l.id as localidad_id, l.nombre as localidad_nombre, s.nombre as sector_nombre,
+                                  COUNT(DISTINCT r.fecha_respuesta) as count,
+                                  0 as socios,
+                                  0 as socios_count,
+                                  COUNT(DISTINCT r.fecha_respuesta) as no_socios,
+                                  COUNT(DISTINCT r.fecha_respuesta) as no_socios_count
+                           FROM respuesta r
+                           $sessionJoin
+                           JOIN localidad l ON r.localidad_id = l.id
+                           LEFT JOIN sector s ON r.sector_id = s.id
+                           WHERE r.encuesta_periodo_id = ?";
+                $paramsLoc = array_merge($sessionJoinParams, [$periodo_id]);
+            }
             if ($sector_id) { $sqlLoc .= " AND r.sector_id = ?"; $paramsLoc[] = $sector_id; }
             $sqlLoc .= $sessionWhere . " GROUP BY l.id, l.nombre, s.nombre ORDER BY count DESC";
             $paramsLoc = array_merge($paramsLoc, $sessionWhereParams);
@@ -1211,30 +1249,9 @@ switch ($method) {
                 ];
             }
             
-            // 6. Camara Distribution (NEW)
+            // 6. Camara Distribution
             $camaraStats = [];
-            $stmtCamaraQ = $pdo->prepare("
-                SELECT p.id FROM pregunta p
-                JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
-                WHERE ep.encuesta_id = ? AND p.tipo = 'selector_camara' 
-                LIMIT 1
-            ");
-            $stmtCamaraQ->execute([$encuesta_id]);
-            $camaraQ = $stmtCamaraQ->fetch();
-            if (!$camaraQ) {
-                $stmtCamaraQ = $pdo->prepare("
-                    SELECT p.id FROM pregunta p
-                    JOIN encuesta_pregunta ep ON p.id = ep.pregunta_id
-                    WHERE ep.encuesta_id = ? 
-                      AND (p.texto_pregunta LIKE '%Cámara%' OR p.texto_pregunta LIKE '%Camara%' OR p.texto_pregunta LIKE '%Asociación%' OR p.texto_pregunta LIKE '%pertenece%') 
-                      AND p.tipo = 'opcion_unica' 
-                    ORDER BY p.id LIMIT 1
-                ");
-                $stmtCamaraQ->execute([$encuesta_id]);
-                $camaraQ = $stmtCamaraQ->fetch();
-            }
-            if ($camaraQ) {
-                $camaraPreguntaId = $camaraQ['id'];
+            if ($camaraPreguntaId) {
                 $sqlCamara = "SELECT 
                                 c.id as camara_id,
                                 c.nombre as camara_nombre,

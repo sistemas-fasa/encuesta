@@ -132,6 +132,7 @@ export default function Dashboard() {
   const [selectedIvaStatus, setSelectedIvaStatus] = useState('');
   const [stats, setStats] = useState({});
   const [localidadStats, setLocalidadStats] = useState([]);
+  const [localidadViewMode, setLocalidadViewMode] = useState('chart'); // 'chart' | 'table'
   const [totalRespuestas, setTotalRespuestas] = useState(0);
   const [sectorDistribution, setSectorDistribution] = useState([]);
   const [selectedSectors, setSelectedSectors] = useState([]); // Array of sector names
@@ -1703,56 +1704,247 @@ export default function Dashboard() {
           {/* LOCALIDAD DISTRIBUTION CHART */}
           {(() => {
             const filteredLocalidad = [];
+            let totalLocalidadRespuestas = 0;
+            let totalSocios = 0;
+            let totalNoSocios = 0;
+
             if (localidadStats) {
               const aggregated = {};
               localidadStats.forEach(l => {
                 if (selectedSectors.length > 0 && !selectedSectors.includes(l.sector_nombre)) return;
-                if (!aggregated[l.localidad_nombre]) {
-                  aggregated[l.localidad_nombre] = 0;
+                const name = l.localidad_nombre || 'Sin Localidad';
+                if (!aggregated[name]) {
+                  aggregated[name] = { count: 0, socios: 0, no_socios: 0 };
                 }
-                aggregated[l.localidad_nombre] += Number(l.count);
+                const cnt = Number(l.count || 0);
+                const soc = Number(l.socios ?? l.socios_count ?? 0);
+                const noSoc = Number(l.no_socios ?? l.no_socios_count ?? Math.max(0, cnt - soc));
+
+                aggregated[name].count += cnt;
+                aggregated[name].socios += soc;
+                aggregated[name].no_socios += noSoc;
               });
-              Object.entries(aggregated).forEach(([name, count]) => {
-                filteredLocalidad.push({ localidad_nombre: name, count });
+
+              Object.entries(aggregated).forEach(([name, d]) => {
+                filteredLocalidad.push({
+                  localidad_nombre: name,
+                  count: d.count,
+                  socios: d.socios,
+                  no_socios: d.no_socios,
+                  pct_socios: d.count > 0 ? Math.round((d.socios / d.count) * 100) : 0,
+                  pct_no_socios: d.count > 0 ? Math.round((d.no_socios / d.count) * 100) : 0
+                });
+                totalLocalidadRespuestas += d.count;
+                totalSocios += d.socios;
+                totalNoSocios += d.no_socios;
               });
               filteredLocalidad.sort((a, b) => b.count - a.count);
             }
 
             return (
-              <div id="chart-localidades" className="glass-card animate-slide-up no-print" style={{ padding: '2rem', borderRadius: '1.5rem', background: 'white', marginTop: '2rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h3 style={{ fontSize: '1.2rem', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: '800' }}>
-                    <MapPin size={20} color="var(--primary)" /> Distribución por Localidad
-                  </h3>
-                  <button className="btn btn-outline btn-small no-print" onClick={() => saveChartAsImage('chart-localidades', 'localidades')} title="Guardar imagen">
-                    <Camera size={16} />
-                  </button>
-                </div>
-                <div style={{ height: '300px', position: 'relative' }}>
-                  {filteredLocalidad.length > 0 ? (
-                    <Bar data={{
-                      labels: filteredLocalidad.map(l => l.localidad_nombre),
-                      datasets: [{
-                        label: 'Respuestas',
-                        data: filteredLocalidad.map(l => l.count),
-                        backgroundColor: 'rgba(99, 102, 241, 0.8)',
-                        borderRadius: 6
-                      }]
-                    }} options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: { legend: { display: false } },
-                      scales: {
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { stepSize: 1 } },
-                        x: { grid: { display: false } }
-                      }
-                    }} />
-                  ) : (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                      No hay datos de Localidad
+              <div id="chart-localidades" className="glass-card animate-slide-up no-print" style={{ padding: '2rem', borderRadius: '1.5rem', background: 'white', marginTop: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.25rem', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: '800' }}>
+                      <MapPin size={22} color="var(--primary)" /> Distribución por Localidad
+                    </h3>
+                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.4rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span>Total: <strong style={{ color: '#1e293b' }}>{totalLocalidadRespuestas}</strong> respuestas</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#eff6ff', padding: '0.2rem 0.6rem', borderRadius: '2rem', color: '#1d4ed8', fontWeight: '600' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4f46e5', display: 'inline-block' }}></span>
+                        {totalSocios} socios ({totalLocalidadRespuestas > 0 ? Math.round((totalSocios / totalLocalidadRespuestas) * 100) : 0}%)
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#f1f5f9', padding: '0.2rem 0.6rem', borderRadius: '2rem', color: '#475569', fontWeight: '600' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
+                        {totalNoSocios} no socios ({totalLocalidadRespuestas > 0 ? Math.round((totalNoSocios / totalLocalidadRespuestas) * 100) : 0}%)
+                      </span>
                     </div>
-                  )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }} className="no-print">
+                    <div style={{ display: 'inline-flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
+                      <button
+                        className="btn-view-toggle"
+                        onClick={() => setLocalidadViewMode('chart')}
+                        style={{
+                          border: 'none',
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          background: localidadViewMode === 'chart' ? 'white' : 'transparent',
+                          color: localidadViewMode === 'chart' ? '#1e293b' : '#64748b',
+                          boxShadow: localidadViewMode === 'chart' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <BarChart3 size={15} /> Gráfico
+                      </button>
+                      <button
+                        className="btn-view-toggle"
+                        onClick={() => setLocalidadViewMode('table')}
+                        style={{
+                          border: 'none',
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          background: localidadViewMode === 'table' ? 'white' : 'transparent',
+                          color: localidadViewMode === 'table' ? '#1e293b' : '#64748b',
+                          boxShadow: localidadViewMode === 'table' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <FileText size={15} /> Tabla detallada
+                      </button>
+                    </div>
+                    <button className="btn btn-outline btn-small no-print" onClick={() => saveChartAsImage('chart-localidades', 'localidades')} title="Guardar imagen">
+                      <Camera size={16} />
+                    </button>
+                  </div>
                 </div>
+
+                {localidadViewMode === 'chart' ? (
+                  <div style={{ height: '360px', position: 'relative' }}>
+                    {filteredLocalidad.length > 0 ? (
+                      <Bar
+                        data={{
+                          labels: filteredLocalidad.map(l => l.localidad_nombre),
+                          datasets: [
+                            {
+                              label: 'Socios',
+                              data: filteredLocalidad.map(l => l.socios),
+                              backgroundColor: 'rgba(79, 70, 229, 0.85)',
+                              hoverBackgroundColor: 'rgba(79, 70, 229, 1)',
+                              borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 },
+                              stack: 'loc'
+                            },
+                            {
+                              label: 'No Socios',
+                              data: filteredLocalidad.map(l => l.no_socios),
+                              backgroundColor: 'rgba(148, 163, 184, 0.85)',
+                              hoverBackgroundColor: 'rgba(148, 163, 184, 1)',
+                              borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+                              stack: 'loc'
+                            }
+                          ]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              display: true,
+                              position: 'top',
+                              align: 'end',
+                              labels: {
+                                boxWidth: 12,
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                font: { size: 12, weight: '700' },
+                                color: '#475569'
+                              }
+                            },
+                            tooltip: {
+                              backgroundColor: '#0f172a',
+                              titleFont: { size: 13, weight: '700' },
+                              bodyFont: { size: 12 },
+                              padding: 12,
+                              cornerRadius: 8,
+                              callbacks: {
+                                label: (context) => {
+                                  const val = context.raw || 0;
+                                  const loc = filteredLocalidad[context.dataIndex];
+                                  const total = loc ? loc.count : 0;
+                                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0';
+                                  return ` ${context.dataset.label}: ${val} (${pct}%)`;
+                                },
+                                footer: (tooltipItems) => {
+                                  if (!tooltipItems.length) return '';
+                                  const loc = filteredLocalidad[tooltipItems[0].dataIndex];
+                                  if (!loc) return '';
+                                  return `Total: ${loc.count} respuestas (${loc.socios} socios, ${loc.no_socios} no socios)`;
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            x: {
+                              stacked: true,
+                              grid: { display: false },
+                              ticks: {
+                                maxRotation: 45,
+                                minRotation: 45,
+                                font: { size: 10, weight: '600' },
+                                color: '#64748b'
+                              }
+                            },
+                            y: {
+                              stacked: true,
+                              beginAtZero: true,
+                              grid: { color: '#f1f5f9' },
+                              ticks: { stepSize: 1, color: '#64748b' }
+                            }
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                        No hay datos de Localidad
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto', maxHeight: '420px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>#</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Localidad</th>
+                          <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>Total</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Socios</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>No Socios</th>
+                          <th style={{ padding: '0.75rem 0.5rem', width: '22%' }}>Proporción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLocalidad.map((loc, idx) => (
+                          <tr key={loc.localidad_nombre} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}>
+                            <td style={{ padding: '0.65rem 0.5rem', color: '#94a3b8', fontWeight: '700' }}>{idx + 1}</td>
+                            <td style={{ padding: '0.65rem 0.5rem', fontWeight: '700', color: '#1e293b' }}>{loc.localidad_nombre}</td>
+                            <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center', fontWeight: '800', color: '#0f172a' }}>{loc.count}</td>
+                            <td style={{ padding: '0.65rem 0.5rem' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700', color: '#4f46e5' }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4f46e5', display: 'inline-block' }}></span>
+                                {loc.socios} <span style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: '500' }}>({loc.pct_socios}%)</span>
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.65rem 0.5rem' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700', color: '#64748b' }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
+                                {loc.no_socios} <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '500' }}>({loc.pct_no_socios}%)</span>
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.65rem 0.5rem' }}>
+                              <div style={{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', display: 'flex' }} title={`Socios: ${loc.pct_socios}% | No socios: ${loc.pct_no_socios}%`}>
+                                <div style={{ width: `${loc.pct_socios}%`, background: '#4f46e5', height: '100%' }}></div>
+                                <div style={{ width: `${loc.pct_no_socios}%`, background: '#94a3b8', height: '100%' }}></div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             );
           })()}
