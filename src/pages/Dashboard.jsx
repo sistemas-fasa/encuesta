@@ -1903,7 +1903,7 @@ export default function Dashboard() {
                     )}
                   </div>
                 ) : (
-                  <div style={{ overflowX: 'auto', maxHeight: '420px' }}>
+                  <div style={{ width: '100%', overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
                       <thead>
                         <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -1942,6 +1942,31 @@ export default function Dashboard() {
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop: '2px solid #cbd5e1', background: '#f8fafc', fontWeight: '800' }}>
+                          <td style={{ padding: '0.85rem 0.5rem', color: '#64748b' }}>TOTAL</td>
+                          <td style={{ padding: '0.85rem 0.5rem', color: '#0f172a' }}>{filteredLocalidad.length} localidades</td>
+                          <td style={{ padding: '0.85rem 0.5rem', textAlign: 'center', color: '#0f172a', fontSize: '1rem' }}>{totalLocalidadRespuestas}</td>
+                          <td style={{ padding: '0.85rem 0.5rem', color: '#4f46e5' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4f46e5', display: 'inline-block' }}></span>
+                              {totalSocios} <span style={{ fontSize: '0.78rem', color: '#6366f1' }}>({totalLocalidadRespuestas > 0 ? Math.round((totalSocios / totalLocalidadRespuestas) * 100) : 0}%)</span>
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.85rem 0.5rem', color: '#64748b' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
+                              {totalNoSocios} <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>({totalLocalidadRespuestas > 0 ? Math.round((totalNoSocios / totalLocalidadRespuestas) * 100) : 0}%)</span>
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.85rem 0.5rem' }}>
+                            <div style={{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', display: 'flex' }} title={`Socios: ${totalLocalidadRespuestas > 0 ? Math.round((totalSocios / totalLocalidadRespuestas) * 100) : 0}% | No socios: ${totalLocalidadRespuestas > 0 ? Math.round((totalNoSocios / totalLocalidadRespuestas) * 100) : 0}%`}>
+                              <div style={{ width: `${totalLocalidadRespuestas > 0 ? (totalSocios / totalLocalidadRespuestas) * 100 : 0}%`, background: '#4f46e5', height: '100%' }}></div>
+                              <div style={{ width: `${totalLocalidadRespuestas > 0 ? (totalNoSocios / totalLocalidadRespuestas) * 100 : 0}%`, background: '#94a3b8', height: '100%' }}></div>
+                            </div>
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
