@@ -2,7 +2,7 @@ const isProduction = import.meta.env.MODE === 'production';
 
 // En producción para DonWeb usamos el backend en PHP
 export const API_URL = isProduction 
-  ? '/encuestas/api/api.php' 
+  ? '/api/api.php'
   : 'http://localhost:3001/api'; 
 
 const fetchWithCreds = (url, options = {}) => {
@@ -531,7 +531,7 @@ export const api = {
 
     // Version check for cache busting
     getVersion: async () => {
-        const versionUrl = isProduction ? '/encuestas/api/version.php' : 'http://localhost:3001/api/version';
+        const versionUrl = isProduction ? '/api/version.php' : 'http://localhost:3001/api/version';
         try {
             const response = await fetch(versionUrl, { cache: 'no-store' });
             if (!response.ok) return null;

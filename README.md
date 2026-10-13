@@ -1,16 +1,23 @@
-# React + Vite
+# Encuestas FASA
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicación React/Vite servida junto con la API PHP y MySQL. La imagen `Dockerfile` compila el frontend y ejecuta Apache/PHP; la API PHP conserva las rutas que usa la versión actual de producción.
 
-Currently, two official plugins are available:
+## Producción en Coolify
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Proyecto y entorno: `Encuestas FASA` / `production`.
+- Repositorio: `sistemas-fasa/encuesta`, rama `main`.
+- Build: Dockerfile del repositorio; puerto interno `80`.
+- Dominio: `https://encuestas.fasa.ar` en la raíz.
+- Variables de runtime requeridas: `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`.
+- Volúmenes persistentes: `/var/www/html/public/uploads` y `/var/lib/php/sessions`.
+- Health check: `/health.php`; verifica la conexión MySQL con `SELECT 1` y no muestra detalles de conexión.
 
-## React Compiler
+No importes `db_production.sql` al iniciar la app. La API PHP ejecuta migraciones automáticas al atender solicitudes; respalda y revisa la base existente antes de conectarla.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Desarrollo local
 
-## Expanding the ESLint configuration
+- Frontend: `npm ci` y `npm run dev`.
+- API Node local: copiá `backend/.env.example` a `backend/.env`, completá las variables desde un gestor seguro y ejecutá `node server.js` desde `backend/`.
+- No guardes `.env` en Git. Los archivos `.env` que estuvieron en el historial público deben revocarse; quitarlos del checkout no invalida credenciales anteriores.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+La API Node local y la API PHP usada por producción no tienen el mismo contrato completo. La imagen de Coolify empaqueta la API PHP.

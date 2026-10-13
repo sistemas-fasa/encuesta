@@ -21,7 +21,8 @@ set_exception_handler(function ($exception) {
     survey_log_error('uncaught_exception', $exception);
 
     if (php_sapi_name() === 'cli') {
-        echo "Error: " . $exception->getMessage() . "\n";
+        echo "Error: " . $exception->getMessage() . "
+";
         exit(1);
     }
 
@@ -100,33 +101,37 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit;
 }
 
-// ── Database ───────────────────────────────────────────────────────────
-$host = 'localhost';
-$db   = 'l0012413_encuest'; 
-$user = 'l0012413_encuest';      
-$pass = 'SEvoba25pi';          
-$charset = 'utf8mb4';
+// ── Database: runtime environment only ──────────────────────────────────
+$dbHost = getenv('DB_HOST') ?: '';
+$dbName = getenv('DB_NAME') ?: '';
+$dbUser = getenv('DB_USER') ?: '';
+$dbPass = getenv('DB_PASS') ?: '';
 
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
+if ($dbHost === '' || $dbName === '' || $dbUser === '' || $dbPass === '') {
+    error_log('Required database runtime variables are missing.');
+    header('Content-Type: application/json', true, 503);
+    echo json_encode(['error' => 'Service unavailable']);
+    exit;
+}
+
+$dsn = sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $dbHost, $dbName);
 $options = [
-    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    PDO::ATTR_EMULATE_PREPARES   => false,
+    PDO::ATTR_EMULATE_PREPARES => false,
 ];
 
 try {
-     $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (\PDOException $e) {
-     survey_log_error('db_connection', $e);
-     header('Content-Type: application/json', true, 500);
-     header("Cache-Control: no-cache, no-store, must-revalidate, private");
-     header("Pragma: no-cache");
-     header("Expires: 0");
-     echo json_encode(['error' => 'Error de conexión a la base de datos. Por favor intentá más tarde.']);
-     exit;
+    $pdo = new PDO($dsn, $dbUser, $dbPass, $options);
+} catch (\PDOException $error) {
+    survey_log_error('db_connection', $error);
+    header('Content-Type: application/json', true, 503);
+    echo json_encode(['error' => 'Service unavailable']);
+    exit;
 }
-
-session_start();
+if (!defined('ENCUESTAS_NO_SESSION')) {
+    session_start();
+}
 
 function is_authenticated() {
     return isset($_SESSION['user']);

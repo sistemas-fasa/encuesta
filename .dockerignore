@@ -1,0 +1,17 @@
+.git
+.codegraph
+.cursor
+node_modules
+dist
+.env
+.env.*
+backend/.env
+backend/node_modules
+db_production.sql
+*.sql
+public/api/diagnostico.php
+public/api/dump.php
+public/api/dump_q.php
+public/api/migrate_*.php
+public/api/clean_duplicates.php
+public/api/show_error.php
