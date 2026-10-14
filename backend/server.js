@@ -1873,8 +1873,8 @@ app.get('/', async (req, res) => {
         const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
         const imageUrl = `${protocol}://${host}/logo.png`;
 
-        html = html.replace(/{{TITLE}}/g, 'CEM - Sistema de Encuestas')
-                   .replace(/{{DESC}}/g, 'Relevamiento Económico Social - Participación Ciudadana')
+        html = html.replace(/{{TITLE}}/g, 'Encuestas Fasa')
+                   .replace(/{{DESC}}/g, 'Sistema de Encuestas')
                    .replace(/{{IMAGE}}/g, imageUrl)
                    .replace(/{{URL}}/g, `${protocol}://${host}/`);
         
@@ -1888,7 +1888,7 @@ app.get('/encuesta/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const [rows] = await pool.query('SELECT titulo, descripcion FROM encuesta WHERE id = ?', [id]);
-        const survey = rows[0] || { titulo: 'Sistema de Encuestas CEM', descripcion: 'Participe en nuestro relevamiento' };
+        const survey = rows[0] || { titulo: 'Encuestas Fasa', descripcion: 'Sistema de Encuestas' };
         
         const indexPath = path.join(__dirname, '../index.html');
         if (!fs.existsSync(indexPath)) {

@@ -610,10 +610,10 @@ export default function SurveyForm() {
         )}
 
         <h1 style={{ fontSize: '2.8rem', marginBottom: '0.8rem', letterSpacing: '-1.5px', color: 'var(--text-main)', fontWeight: '800' }}>
-          {selectedEncuesta?.titulo || 'Encuesta Provincial CEM - Relevamiento Pyme'}
+          {selectedEncuesta?.titulo || 'Encuestas Fasa'}
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', maxWidth: '700px', margin: '0 auto', fontWeight: '500' }}>
-          {selectedEncuesta?.descripcion || 'Encuesta Provincial CEM - Relevamiento Pyme'}
+          {selectedEncuesta?.descripcion || 'Sistema de Encuestas'}
         </p>
         <div style={{ height: '5px', width: '80px', background: 'var(--primary)', margin: '2rem auto 0', borderRadius: '10px' }}></div>
       </header>
