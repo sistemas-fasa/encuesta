@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useParams } from 'react-router-dom';
 import { ClipboardList, Building2, Calendar, Send, ChevronRight, ChevronLeft, AlertCircle, CheckCircle2, Trophy, Gift } from 'lucide-react';
-import logo from '../assets/logo.png';
-import bannerLogos from '../assets/banner-logos.jpg';
 import { surveyLogger } from '../utils/surveyLogger';
 
 export default function SurveyForm() {
@@ -595,13 +593,8 @@ export default function SurveyForm() {
   return (
     <div className="container animate-fade-in">
       <header style={{ marginBottom: '3rem', textAlign: 'center', paddingTop: '1rem' }}>
-        <div style={{ marginBottom: '1.5rem', width: '100%', overflow: 'hidden' }}>
-          <img
-            src={bannerLogos}
-            alt="Asociaciones Participantes"
-            style={{ width: '100%', maxWidth: '900px', height: 'auto', objectFit: 'contain', borderRadius: '8px' }}
-          />
-        </div>
+        {/* Espacio reservado para texto o imagen futura */}
+        <div id="survey-header-banner" style={{ width: '100%', overflow: 'hidden' }}></div>
 
         {!urlEncuestaId && encuestas.length > 1 && (
           <div className="input-group" style={{ maxWidth: '400px', margin: '0 auto 2.5rem' }}>
