@@ -48,7 +48,7 @@ export default function Login({ setAuthUser }) {
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
           <img 
             src={logo} 
-            alt="Logo CEM" 
+            alt="Logo Ferretería Avenida" 
             style={{ 
                 height: '80px', 
                 marginBottom: '1.5rem', 

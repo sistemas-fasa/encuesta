@@ -1227,7 +1227,7 @@ export default function Dashboard() {
 
       <div className="print-header" style={{ marginBottom: '3rem', borderBottom: '4px solid #1e293b', paddingBottom: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <img src={logo} alt="CEM Logo" style={{ height: '90px' }} />
+          <img src={logo} alt="Logo Ferretería Avenida" style={{ height: '90px' }} />
           <div style={{ textAlign: 'right' }}>
             <h1 style={{ color: '#1e293b', fontSize: '2.2rem', fontWeight: '900', margin: 0, textTransform: 'uppercase', letterSpacing: '-1px' }}>
               REPORTE DE RELEVAMIENTO ECONÓMICO
