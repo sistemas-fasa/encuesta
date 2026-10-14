@@ -127,10 +127,21 @@ const testConnection = async () => {
                 await connection.query("ALTER TABLE tendencia_imagen ADD UNIQUE KEY uk_encuesta_pregunta_sector (encuesta_id, pregunta_id, sector_id)");
             } catch (e) { /* already exists */ }
             console.log('tendencia_imagen table ready');
+        // Sincronizar usuario administrador con contraseña Fasa@2026
+        try {
+            const adminHash = '$2y$10$h9PujaFxMb9sFevKVY8KHOv/YVBU9YoTTwLOvt5CAgmPxMFhI8u/G';
+            const [users] = await connection.query("SELECT id FROM usuarios WHERE usuario = 'admin'");
+            if (users.length > 0) {
+                await connection.query("UPDATE usuarios SET password = ?, estado = 1 WHERE usuario = 'admin'", [adminHash]);
+                console.log('Usuario admin actualizado con contraseña Fasa@2026');
+            } else {
+                await connection.query("INSERT INTO usuarios (usuario, password, nombre, rol, estado) VALUES ('admin', ?, 'Administrador', 'admin', 1)", [adminHash]);
+                console.log('Usuario admin creado con contraseña Fasa@2026');
+            }
         } catch (err) {
-            console.log('Note: tendencia_imagen table:', err.message);
+            console.log('Note: admin user sync:', err.message);
         }
-        
+
         connection.release();
     } catch (error) {
         console.error('Error connecting to MySQL database:', error.message);
@@ -266,6 +277,43 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/logout', (req, res) => {
     req.session.destroy();
     res.json({ message: 'Sesión cerrada' });
+});
+
+// Endpoint para restablecer contraseña de admin a Fasa@2026
+app.all(['/api/reset_admin', '/api/reset_admin.php', '/reset_admin', '/reset_admin.php'], async (req, res) => {
+    try {
+        const adminHash = '$2y$10$h9PujaFxMb9sFevKVY8KHOv/YVBU9YoTTwLOvt5CAgmPxMFhI8u/G';
+        const [users] = await pool.query("SELECT id FROM usuarios WHERE usuario = 'admin'");
+        if (users.length > 0) {
+            await pool.query("UPDATE usuarios SET password = ?, estado = 1 WHERE usuario = 'admin'", [adminHash]);
+        } else {
+            await pool.query("INSERT INTO usuarios (usuario, password, nombre, rol, estado) VALUES ('admin', ?, 'Administrador', 'admin', 1)", [adminHash]);
+        }
+
+        if (req.headers.accept && req.headers.accept.includes('application/json')) {
+            return res.json({ success: true, message: 'Contraseña de admin actualizada con éxito a Fasa@2026', usuario: 'admin' });
+        }
+
+        res.send(`
+            <!DOCTYPE html><html><head><meta charset="utf-8"><title>Restablecer Administrador</title>
+            <style>body{font-family:system-ui,sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
+            .card{background:white;padding:2.5rem;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.08);max-width:440px;width:90%;text-align:center;border:1px solid #e2e8f0;}
+            h2{color:#16a34a;margin-top:0;} p{color:#475569;} .box{background:#f1f5f9;padding:1rem;border-radius:8px;margin:1.5rem 0;text-align:left;font-family:monospace;}
+            .btn{display:inline-block;padding:0.75rem 1.5rem;background:#0ea5e9;color:white;text-decoration:none;border-radius:8px;font-weight:600;}</style>
+            </head><body><div class="card">
+            <h2>✅ Contraseña Actualizada</h2>
+            <p>La contraseña del usuario administrador ha sido actualizada con éxito en la base de datos activa.</p>
+            <div class="box">
+            <div><strong>Usuario:</strong> admin</div>
+            <div><strong>Contraseña:</strong> Fasa@2026</div>
+            <div><strong>Estado:</strong> Activo (1)</div>
+            </div>
+            <a class="btn" href="/login">Ir a Iniciar Sesión</a>
+            </div></body></html>
+        `);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // CAMARAS CRUD
