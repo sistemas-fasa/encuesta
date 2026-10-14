@@ -623,7 +623,6 @@ CREATE TABLE `usuarios` (
   UNIQUE KEY `usuario` (`usuario`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Data for usuarios
-INSERT INTO `usuarios` (`id`, `usuario`, `password`, `nombre`, `email`, `rol`, `estado`, `fecha_creacion`) VALUES (1, 'admin', '$2b$10$OcAnECN3Bm1KIGjHDsoxcOjxP1.l1GnNQ0nggicpomXebbm2TxU6O', 'Enrique', 'enriqueloffler2@gmail.com', 'admin', 1, '2026-03-26 13:25:13');
+INSERT INTO `usuarios` (`id`, `usuario`, `password`, `nombre`, `email`, `rol`, `estado`, `fecha_creacion`) VALUES (1, 'admin', '$2y$10$h9PujaFxMb9sFevKVY8KHOv/YVBU9YoTTwLOvt5CAgmPxMFhI8u/G', 'Enrique', 'enriqueloffler2@gmail.com', 'admin', 1, '2026-03-26 13:25:13');
 
 SET FOREIGN_KEY_CHECKS = 1;
