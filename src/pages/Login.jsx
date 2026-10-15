@@ -50,7 +50,10 @@ export default function Login({ setAuthUser }) {
             src={logo} 
             alt="Logo Ferretería Avenida" 
             style={{ 
-                height: '80px', 
+                maxHeight: '52px', 
+                maxWidth: '100%', 
+                width: 'auto', 
+                objectFit: 'contain', 
                 marginBottom: '1.5rem', 
                 filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.05))' 
             }} 

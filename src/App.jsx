@@ -90,7 +90,7 @@ function App() {
         <div style={{ visibility: 'hidden' }}>{/* Spacer para balancear el grid */}</div>
         
         <Link to="/" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-          <img src={logo} alt="Logo Ferretería Avenida" style={{ height: '75px', objectFit: 'contain' }} />
+          <img src={logo} alt="Logo Ferretería Avenida" style={{ height: '55px', maxWidth: '100%', objectFit: 'contain' }} />
         </Link>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem', justifyContent: 'flex-end' }}>
