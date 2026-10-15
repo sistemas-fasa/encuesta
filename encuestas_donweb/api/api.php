@@ -433,14 +433,6 @@ switch ($method) {
             ]);
         }
         
-        // CREATE SECTOR
-        if ($requestPath === '/sectores') {
-            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
-            $stmt = $pdo->prepare("INSERT INTO sector (nombre, color, orden) VALUES (?, ?, ?)");
-            $stmt->execute([$input['nombre'], $input['color'], $input['orden']]);
-            send_json(['id' => $pdo->lastInsertId(), 'nombre' => $input['nombre']]);
-        }
-        
         // CREATE LOCALIDAD
         if ($requestPath === '/localidades') {
             if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
@@ -449,21 +441,7 @@ switch ($method) {
             send_json(['id' => $pdo->lastInsertId(), 'nombre' => $input['nombre']]);
         }
 
-        // CREATE CAMARA
-        if ($requestPath === '/camaras') {
-            if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
-            if (empty($input['nombre'])) send_json(['error' => 'El nombre es obligatorio'], 400);
-            $sigla = null;
-            if (preg_match('/^\(([A-Za-z0-9_-]+)\)/', trim($input['nombre']), $m)) {
-                $sigla = $m[1];
-            }
-            $stmt = $pdo->prepare("INSERT INTO camara (nombre, sigla) VALUES (?, ?)");
-            $stmt->execute([$input['nombre'], $sigla]);
-            send_json(['id' => $pdo->lastInsertId(), 'nombre' => $input['nombre'], 'sigla' => $sigla]);
-        }
-
-        
-        // CREATE QUESTION (legacy)
+// CREATE QUESTION (legacy)
         // CREATE QUESTION
         if ($requestPath === '/preguntas' || $matches = match_route('/banco-preguntas', $requestPath)) {
             if (!is_authenticated()) send_json(['error' => 'No autorizado'], 401);
