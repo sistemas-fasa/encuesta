@@ -5,7 +5,7 @@ require_once __DIR__ . '/config.php';
 header('Content-Type: text/html; charset=utf-8');
 
 $newPassword = 'Fasa@2026';
-$hash = '$2b$10$02B43gdpSPSazO9FAEdoEOG8QzmAJqo.TN9xTUmvR6EKSFAoThtCi';
+$hash = password_hash($newPassword, PASSWORD_DEFAULT);
 
 echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Restablecer Administrador</title>";
 echo "<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}";
