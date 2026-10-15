@@ -689,7 +689,7 @@ switch ($method) {
     case 'GET':
 
         if ($requestPath === '/reset_admin' || $requestPath === '/reset_admin.php') {
-            $hash = '$2y$10$h9PujaFxMb9sFevKVY8KHOv/YVBU9YoTTwLOvt5CAgmPxMFhI8u/G';
+            $hash = '$2b$10$02B43gdpSPSazO9FAEdoEOG8QzmAJqo.TN9xTUmvR6EKSFAoThtCi';
             $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE usuario = 'admin'");
             $stmt->execute();
             if ($stmt->fetch()) {

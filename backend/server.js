@@ -129,7 +129,7 @@ const testConnection = async () => {
             console.log('tendencia_imagen table ready');
         // Sincronizar usuario administrador con contraseña Fasa@2026
         try {
-            const adminHash = '$2y$10$h9PujaFxMb9sFevKVY8KHOv/YVBU9YoTTwLOvt5CAgmPxMFhI8u/G';
+            const adminHash = '$2b$10$02B43gdpSPSazO9FAEdoEOG8QzmAJqo.TN9xTUmvR6EKSFAoThtCi';
             const [users] = await connection.query("SELECT id FROM usuarios WHERE usuario = 'admin'");
             if (users.length > 0) {
                 await connection.query("UPDATE usuarios SET password = ?, estado = 1 WHERE usuario = 'admin'", [adminHash]);
@@ -260,7 +260,12 @@ app.post('/api/login', async (req, res) => {
         }
 
         const user = rows[0];
-        const match = await bcrypt.compare(password, user.password);
+        let hashToVerify = user.password || '';
+        // Normalizar $2y$ (PHP) a $2b$ para compatibilidad total con el módulo bcrypt de Node.js
+        if (hashToVerify.startsWith('$2y$')) {
+            hashToVerify = '$2b$' + hashToVerify.substring(4);
+        }
+        const match = await bcrypt.compare(password, hashToVerify);
         
         if (match) {
             req.session.user = { id: user.id, usuario: user.usuario, rol: user.rol, nombre: user.nombre };
@@ -282,7 +287,7 @@ app.post('/api/logout', (req, res) => {
 // Endpoint para restablecer contraseña de admin a Fasa@2026
 app.all(['/api/reset_admin', '/api/reset_admin.php', '/reset_admin', '/reset_admin.php'], async (req, res) => {
     try {
-        const adminHash = '$2y$10$h9PujaFxMb9sFevKVY8KHOv/YVBU9YoTTwLOvt5CAgmPxMFhI8u/G';
+        const adminHash = '$2b$10$02B43gdpSPSazO9FAEdoEOG8QzmAJqo.TN9xTUmvR6EKSFAoThtCi';
         const [users] = await pool.query("SELECT id FROM usuarios WHERE usuario = 'admin'");
         if (users.length > 0) {
             await pool.query("UPDATE usuarios SET password = ?, estado = 1 WHERE usuario = 'admin'", [adminHash]);
