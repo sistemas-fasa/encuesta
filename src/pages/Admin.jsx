@@ -228,77 +228,6 @@ export default function Admin() {
     }
   };
 
-  const handleAddCamara = async () => {
-    const { value: nombre } = await Swal.fire({
-      title: 'Nueva Cámara o Asociación',
-      input: 'text',
-      inputLabel: 'Nombre de la entidad',
-      placeholder: 'Ej: Cámara de Comercio de...',
-      showCancelButton: true,
-      confirmButtonText: 'Guardar',
-      cancelButtonText: 'Cancelar',
-      inputValidator: (value) => {
-        if (!value) return 'Debes escribir un nombre';
-      }
-    });
-
-    if (nombre) {
-      try {
-        await api.createCamara({ nombre });
-        loadInitialData();
-        Swal.fire('¡Guardado!', 'La cámara ha sido agregada.', 'success');
-      } catch (error) {
-        Swal.fire('Error', error.message, 'error');
-      }
-    }
-  };
-
-  const handleEditCamara = async (cam) => {
-    const { value: nombre } = await Swal.fire({
-      title: 'Editar Cámara',
-      input: 'text',
-      inputLabel: 'Nombre de la entidad',
-      inputValue: cam.nombre,
-      showCancelButton: true,
-      confirmButtonText: 'Actualizar',
-      cancelButtonText: 'Cancelar',
-      inputValidator: (value) => {
-        if (!value) return 'Debes escribir un nombre';
-      }
-    });
-
-    if (nombre && nombre !== cam.nombre) {
-      try {
-        await api.updateCamara(cam.id, { nombre });
-        loadInitialData();
-        Swal.fire('¡Actualizado!', 'La cámara ha sido modificada.', 'success');
-      } catch (error) {
-        Swal.fire('Error', error.message, 'error');
-      }
-    }
-  };
-
-  const handleDeleteCamara = async (id) => {
-    const result = await Swal.fire({
-      title: '¿Eliminar Cámara?',
-      text: "Asegurate de que no haya respuestas vinculadas a esta cámara.",
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#dc2626',
-      confirmButtonText: 'Sí, eliminar',
-      cancelButtonText: 'Cancelar'
-    });
-
-    if (result.isConfirmed) {
-      try {
-        await api.deleteCamara(id);
-        loadInitialData();
-        Swal.fire('Eliminado', 'La cámara ha sido borrada.', 'success');
-      } catch (error) {
-        Swal.fire('Error', error.message, 'error');
-      }
-    }
-  };
 
   const handleSaveSeccion = async () => {
     const currentScroll = window.scrollY;
@@ -1065,13 +994,6 @@ export default function Admin() {
                     <ListPlus size={18} /> Lógica
                   </button>
                   <button
-                    className={`btn ${tab === 'sectors' ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ borderColor: '#10b981', color: tab === 'sectors' ? 'white' : '#10b981', background: tab === 'sectors' ? '#10b981' : 'transparent' }}
-                    onClick={() => setTab('sectors')}
-                  >
-                    🏢 Sectores
-                  </button>
-                  <button
                     className={`btn ${tab === 'periods' ? 'btn-primary' : 'btn-outline'}`}
                     onClick={() => setTab('periods')}
                   >
@@ -1083,13 +1005,6 @@ export default function Admin() {
                     onClick={() => setTab('localidades')}
                   >
                     📍 Localidades
-                  </button>
-                  <button
-                    className={`btn ${tab === 'camaras' ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ borderColor: '#f59e0b', color: tab === 'camaras' ? 'white' : '#f59e0b', background: tab === 'camaras' ? '#f59e0b' : 'transparent' }}
-                    onClick={() => setTab('camaras')}
-                  >
-                    🏛️ Cámaras
                   </button>
                   <button
                     className={`btn ${tab === 'banco' ? 'btn-primary' : 'btn-outline'}`}
@@ -1488,182 +1403,6 @@ export default function Admin() {
                 )}
 
 
-                {tab === 'sectors' && (
-                  <div className="animate-fade-in">
-                    <div style={{ marginBottom: '1.5rem' }}>
-                      <h3 style={{ marginBottom: '0.5rem' }}>🏢 Sectores / Rubros</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                        Vinculá cada sector con su sección en esta encuesta.
-                        La pregunta "Selector de Rubro" utilizará estos vínculos para navegación automática.
-                      </p>
-                    </div>
-                    <div style={{ display: 'grid', gap: '1rem' }}>
-                      {sectores.map(sector => {
-                        const seccionVinculada = secciones.find(s => s.sector_id === sector.id);
-                        return (
-                          <div key={sector.id} className="glass-card" style={{
-                            padding: '1.2rem 1.5rem',
-                            display: 'flex', alignItems: 'center', gap: '1.5rem',
-                            borderLeft: `4px solid ${sector.color || '#0ea5e9'}`,
-                            background: 'white'
-                          }}>
-                            <span style={{
-                              width: '18px', height: '18px', borderRadius: '50%',
-                              background: sector.color, flexShrink: 0
-                            }}></span>
-                            <div style={{ fontWeight: '700', fontSize: '1.1rem', minWidth: '120px' }}>
-                              {sector.nombre}
-                            </div>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>→</span>
-                            <div style={{ flex: 1 }}>
-                              <select
-                                className="input-group"
-                                style={{ marginBottom: 0, fontSize: '0.9rem' }}
-                                value={seccionVinculada?.id || ''}
-                                onChange={async (e) => {
-                                  const seccionId = e.target.value ? parseInt(e.target.value) : null;
-                                  try {
-                                    // Unlink previous section if any
-                                    if (seccionVinculada) {
-                                      await api.updateSeccion(seccionVinculada.id, { ...seccionVinculada, sector_id: null });
-                                    }
-                                    // Link new section
-                                    if (seccionId) {
-                                      const sec = secciones.find(s => s.id === seccionId);
-                                      await api.updateSeccion(seccionId, { ...sec, sector_id: sector.id });
-
-                                      // NEW: Also update the 'selector_rubro' question option jump if it exists
-                                      const qRubro = preguntas.find(p => p.tipo === 'selector_rubro');
-                                      if (qRubro) {
-                                        const opt = qRubro.opciones.find(o => o.sector_id === sector.id);
-                                        if (opt) {
-                                          await api.updateOpcion(opt.id, { ...opt, siguiente_seccion_id: seccionId });
-                                        }
-                                      }
-                                    }
-                                    handleSelectEncuesta(selectedEncuesta);
-                                  } catch (err) {
-                                    Swal.fire({ icon: 'error', title: 'Error al vincular', text: err.message });
-                                  }
-                                }}
-                              >
-                                <option value="">-- Sin sección vinculada --</option>
-                                {secciones.map(s => (
-                                  <option key={s.id} value={s.id}>{s.titulo}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={{ fontSize: '0.75rem', textAlign: 'right', minWidth: '100px' }}>
-                              {seccionVinculada
-                                ? <span style={{ color: '#10b981', fontWeight: '600' }}>✓ Vinculado</span>
-                                : <span style={{ color: '#ef4444', opacity: 0.7 }}>Sin vincular</span>
-                              }
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {sectores.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '3rem', opacity: 0.5 }}>
-                          No hay sectores configurados en la base de datos.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {tab === 'localidades' && (
-                  <div className="animate-fade-in">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-                      <div>
-                        <h3 style={{ marginBottom: '0.5rem' }}>📍 Gestión de Localidades</h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                          Estas localidades aparecerán en el primer paso de todas las encuestas activas.
-                        </p>
-                      </div>
-                      <button className="btn btn-primary" onClick={handleAddLocalidad}>
-                        <Plus size={18} /> Nueva Localidad
-                      </button>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem' }}>
-                      {auxData.localidades.map(loc => (
-                        <div key={loc.id} className="glass-card" style={{
-                          padding: '1rem 1.5rem',
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          background: 'white'
-                        }}>
-                          <div style={{ fontWeight: '600' }}>{loc.nombre}</div>
-                          <button
-                            className="btn-icon"
-                            style={{ color: '#ef4444' }}
-                            onClick={() => handleDeleteLocalidad(loc.id)}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      ))}
-                      {auxData.localidades.length === 0 && (
-                        <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '4rem', opacity: 0.5 }}>
-                          No hay localidades cargadas.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {tab === 'camaras' && (
-                  <div className="animate-fade-in">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                      <div>
-                        <h3>🏛️ Gestión de Cámaras y Asociaciones</h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Administrá las entidades que aparecerán en el selector de la encuesta.</p>
-                      </div>
-                      <button className="btn btn-primary" onClick={handleAddCamara}>
-                        <Plus size={18} /> Nueva Cámara
-                      </button>
-                    </div>
-                    <div className="glass-card" style={{ padding: '0', overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ background: 'rgba(0,0,0,0.02)', borderBottom: '1px solid var(--glass-border)' }}>
-                            <th style={{ textAlign: 'left', padding: '1rem 1.5rem' }}>Nombre de la Cámara</th>
-                            <th style={{ textAlign: 'center', padding: '1rem', width: '100px' }}>Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {auxData.camaras.map(cam => (
-                            <tr key={cam.id} style={{ borderBottom: '1px solid var(--glass-border)' }}>
-                              <td style={{ padding: '1rem 1.5rem', fontWeight: '500' }}>{cam.nombre}</td>
-                              <td style={{ textAlign: 'center', padding: '1rem' }}>
-                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                                  <button
-                                    className="btn-icon"
-                                    style={{ color: 'var(--primary)' }}
-                                    onClick={() => handleEditCamara(cam)}
-                                  >
-                                    <Edit3 size={16} />
-                                  </button>
-                                  <button
-                                    className="btn-icon"
-                                    style={{ color: '#ef4444' }}
-                                    onClick={() => handleDeleteCamara(cam.id)}
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                          {auxData.camaras.length === 0 && (
-                            <tr>
-                              <td colSpan="2" style={{ textAlign: 'center', padding: '3rem', opacity: 0.5 }}>No hay cámaras cargadas.</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
 
                 {tab === 'periods' && (
                   <div className="animate-fade-in">
@@ -1713,6 +1452,46 @@ export default function Admin() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {tab === 'localidades' && (
+                  <div className="animate-fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
+                      <div>
+                        <h3 style={{ marginBottom: '0.5rem' }}>📍 Gestión de Localidades</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                          Estas localidades aparecerán en el primer paso de todas las encuestas activas.
+                        </p>
+                      </div>
+                      <button className="btn btn-primary" onClick={handleAddLocalidad}>
+                        <Plus size={18} /> Nueva Localidad
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem' }}>
+                      {auxData.localidades.map(loc => (
+                        <div key={loc.id} className="glass-card" style={{
+                          padding: '1rem 1.5rem',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          background: 'white'
+                        }}>
+                          <div style={{ fontWeight: '600' }}>{loc.nombre}</div>
+                          <button
+                            className="btn-icon"
+                            style={{ color: '#ef4444' }}
+                            onClick={() => handleDeleteLocalidad(loc.id)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      {auxData.localidades.length === 0 && (
+                        <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '4rem', opacity: 0.5 }}>
+                          No hay localidades cargadas.
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
